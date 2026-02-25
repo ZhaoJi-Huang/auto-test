@@ -29,8 +29,8 @@ def load_app_config():
     """
     config_path = os.path.join(BACKEND_DIR, "app_config.json")
     defaults = {
-        "data_dir": "../data",
-        "scripts_repo_path": "../tv-test-scripts"
+        "data_dir": "./data",
+        "scripts_repo_path": "./tv-test-scripts"
     }
 
     if os.path.exists(config_path):
