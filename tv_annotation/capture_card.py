@@ -90,6 +90,8 @@ class CaptureCardManager:
     def _capture_loop(self):
         """后台采集线程"""
         fail_count = 0
+        reopen_count = 0
+        max_reopen = 3  # 最多重新打开设备 3 次
         while self.is_running:
             try:
                 if self.cap and self.cap.isOpened():
@@ -98,24 +100,52 @@ class CaptureCardManager:
                         with self.frame_lock:
                             self.current_frame = frame.copy()
                         fail_count = 0
+                        reopen_count = 0
                     else:
                         fail_count += 1
-                        if fail_count >= 5:
-                            print("[CaptureCard] 连续读取失败，停止采集")
-                            self.is_running = False
-                            if self.cap:
-                                self.cap.release()
-                                self.cap = None
-                            break
-                        time.sleep(0.2)
+                        if fail_count >= 30:
+                            # 连续失败较多，尝试重新打开设备
+                            if reopen_count < max_reopen:
+                                reopen_count += 1
+                                print(f"[CaptureCard] 连续读取失败，尝试重新打开设备 ({reopen_count}/{max_reopen})")
+                                try:
+                                    self.cap.release()
+                                except Exception:
+                                    pass
+                                time.sleep(1)
+                                import platform
+                                if platform.system() == "Windows":
+                                    self.cap = cv2.VideoCapture(self.device_id, cv2.CAP_DSHOW)
+                                else:
+                                    self.cap = cv2.VideoCapture(self.device_id)
+                                fail_count = 0
+                            else:
+                                print("[CaptureCard] 多次重新打开设备均失败，停止采集")
+                                self.is_running = False
+                                if self.cap:
+                                    self.cap.release()
+                                    self.cap = None
+                                break
+                        time.sleep(0.1)
                         continue
                 else:
+                    # 设备未打开，尝试重新打开
+                    if reopen_count < max_reopen:
+                        reopen_count += 1
+                        print(f"[CaptureCard] 设备未打开，尝试重新打开 ({reopen_count}/{max_reopen})")
+                        time.sleep(1)
+                        import platform
+                        if platform.system() == "Windows":
+                            self.cap = cv2.VideoCapture(self.device_id, cv2.CAP_DSHOW)
+                        else:
+                            self.cap = cv2.VideoCapture(self.device_id)
+                        continue
                     self.is_running = False
                     break
                 time.sleep(0.033)  # ~30fps
             except Exception as e:
                 print(f"[CaptureCard] 采集错误: {e}")
-                time.sleep(0.1)
+                time.sleep(0.5)
 
     def get_frame(self):
         """获取当前帧（numpy array）"""
