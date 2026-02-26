@@ -212,4 +212,4 @@ if __name__ == "__main__":
     print(f"  服务地址:     http://localhost:5004")
     print("=" * 60 + "\n")
 
-    app.run(host="0.0.0.0", port=5004, debug=False)
+    app.run(host="0.0.0.0", port=5004, debug=False, threaded=True)

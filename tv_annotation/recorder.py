@@ -384,15 +384,34 @@ class TVRecorder:
         if not proc:
             return
 
-        for raw_line in proc.stdout:
-            if not self._is_recording:
-                break
+        try:
+            for raw_line in proc.stdout:
+                if not self._is_recording:
+                    break
 
-            line = raw_line.decode("utf-8", errors="ignore").strip()
-            if not line:
-                continue
+                line = raw_line.decode("utf-8", errors="ignore").strip()
+                if not line:
+                    continue
 
-            self._parse_event_line(line)
+                self._parse_event_line(line)
+        except Exception as e:
+            logger.error(f"getevent 监听异常: {e}")
+
+        # 检查进程退出码
+        if proc.poll() is not None:
+            exit_code = proc.returncode
+            stderr_out = ""
+            try:
+                stderr_out = proc.stderr.read().decode("utf-8", errors="ignore").strip()
+            except Exception:
+                pass
+            if self._is_recording:
+                logger.warning(
+                    f"getevent 进程意外退出 (exit_code={exit_code})"
+                    + (f", stderr: {stderr_out}" if stderr_out else "")
+                )
+                print(f"[录制] getevent 进程意外退出 (exit_code={exit_code})"
+                      + (f": {stderr_out}" if stderr_out else ""))
 
         logger.info("getevent 监听线程已退出")
 

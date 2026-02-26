@@ -90,17 +90,9 @@ def create_recording_routes(device_config, scripts_repo_path):
     # ------------------------------------------------------------------
     @bp.route("/api/tv/recording/status", methods=["GET"])
     def recording_status():
-        """录制状态（兼容旧前端：直接返回顶层字段）"""
+        """录制状态（轻量接口，不执行 ADB 命令，避免阻塞）"""
         recorder = _get_recorder()
         device_serial = device_config.get("tv_ip", "")
-        # 检查设备连接
-        connected = False
-        if device_serial:
-            try:
-                from common.adb_utils import check_adb_device
-                connected, _ = check_adb_device(device_serial)
-            except Exception:
-                pass
         return jsonify({
             "is_recording": recorder.is_recording,
             "testcase_name": recorder.case_key or "",
@@ -110,7 +102,7 @@ def create_recording_routes(device_config, scripts_repo_path):
             "steps": recorder.steps,
             "session_dir": None,
             "start_time": None,
-            "connected": connected,
+            "connected": bool(device_serial),
             "device_ip": device_serial,
         })
 
