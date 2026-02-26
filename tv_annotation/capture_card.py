@@ -197,8 +197,12 @@ class CaptureCardManager:
         return False
 
 
-def enumerate_capture_devices(max_index=9):
-    """枚举可用视频采集设备"""
+def enumerate_capture_devices(max_index=5):
+    """枚举可用视频采集设备
+
+    Windows 上 DirectShow 打开不存在的设备非常慢，
+    因此限制最大索引并跳过单例已占用的设备。
+    """
     if not HAS_CV2:
         return []
 
@@ -206,11 +210,25 @@ def enumerate_capture_devices(max_index=9):
     is_windows = platform.system() == "Windows"
     device_names = _get_device_names_windows() if is_windows else {}
 
+    # 获取单例已占用的设备索引
+    singleton_device_id = None
+    if capture_card.is_running:
+        singleton_device_id = capture_card.device_id
+
     devices = []
     for i in range(max_index + 1):
+        # 如果单例正在使用该设备，直接加入列表（不重复打开）
+        if singleton_device_id is not None and i == singleton_device_id:
+            name = device_names.get(i, f"视频设备 {i}")
+            devices.append({"index": i, "name": name + " (当前使用中)"})
+            continue
+
         cap = None
         try:
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW) if is_windows else cv2.VideoCapture(i)
+            if is_windows:
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            else:
+                cap = cv2.VideoCapture(i)
             if cap.isOpened():
                 ret, _ = cap.read()
                 if ret:
