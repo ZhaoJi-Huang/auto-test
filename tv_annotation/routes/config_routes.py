@@ -12,8 +12,8 @@ def create_config_routes(device_config, data_dir):
 
     @bp.route("/api/tv/config", methods=["GET"])
     def get_config():
-        """获取设备配置"""
-        return jsonify({"success": True, "data": device_config})
+        """获取设备配置（直接返回配置对象，兼容旧前端）"""
+        return jsonify(device_config)
 
     @bp.route("/api/tv/config", methods=["POST"])
     def update_config():
@@ -73,5 +73,21 @@ def create_config_routes(device_config, data_dir):
         from common.adb_utils import check_adb_device
         ok, msg = check_adb_device(tv_ip)
         return jsonify({"success": ok, "message": msg if msg else "设备连接正常"})
+
+    @bp.route("/api/tv/version", methods=["GET"])
+    def version():
+        """版本检查（兼容旧前端）"""
+        return jsonify({"success": True, "message": "已经是最新版本"}), 200
+
+    @bp.route("/api/tv/adb_devices", methods=["GET"])
+    def adb_devices():
+        """获取 ADB 设备列表（兼容旧前端）"""
+        try:
+            from common.adb_utils import run_adb
+            result = run_adb(["devices"])
+            output = result.stdout.decode("utf-8", errors="ignore")
+            return jsonify({"success": True, "output": output})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
 
     return bp

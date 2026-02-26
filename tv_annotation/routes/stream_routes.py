@@ -42,6 +42,11 @@ def create_stream_routes(device_config):
             mimetype="multipart/x-mixed-replace; boundary=frame",
         )
 
+    @bp.route("/api/tv/recording/screen_stream", methods=["GET"])
+    def recording_screen_stream():
+        """旧前端兼容：录制页面视频流"""
+        return screen_stream()
+
     @bp.route("/api/tv/screenshot", methods=["GET"])
     def take_screenshot():
         """获取当前屏幕截图（JPEG）"""

@@ -171,14 +171,15 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    """服务状态"""
+    """服务状态（兼容旧前端格式）"""
     return jsonify({
-        "success": True,
-        "data": {
-            "status": "ok",
-            "data_dir": DATA_DIR,
-            "scripts_repo_path": SCRIPTS_REPO_PATH,
-        }
+        "status": "ok",
+        "modules": {
+            "tv": True,
+            "mobile": False
+        },
+        "data_dir": DATA_DIR,
+        "scripts_repo_path": SCRIPTS_REPO_PATH,
     })
 
 
