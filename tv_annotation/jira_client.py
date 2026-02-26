@@ -97,6 +97,7 @@ class JiraClient:
             "created": fields.get("created", ""),
             "updated": fields.get("updated", ""),
             "customfield_10107": fields.get("customfield_10107", "") or "",
+            "precondition": fields.get("customfield_10808", "") or "",
             "test_steps": steps,
         }
 
@@ -111,7 +112,7 @@ class JiraClient:
             list: 导入的用例列表
         """
         config = self._get_config()
-        fields = "summary,description,issuetype,priority,labels,reporter,created,updated,customfield_10107"
+        fields = "summary,description,issuetype,priority,labels,reporter,created,updated,customfield_10107,customfield_10808"
         url = (
             f"{config['base_url']}/rest/api/2/search"
             f"?jql={quote(jql)}&fields={fields}&maxResults={max_results}"
@@ -127,7 +128,8 @@ class JiraClient:
 
         return cases
 
-    def import_by_key(self, jira_key):
+    def \
+            import_by_key(self, jira_key):
         """通过 Jira Key 导入单条用例
 
         Args:
