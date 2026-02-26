@@ -48,30 +48,58 @@ class CaptureCardManager:
         self.is_running = False
         self.capture_thread = None
 
+    def _open_device(self, device_id, width=1920, height=1080):
+        """打开采集设备并配置分辨率，返回是否成功"""
+        import platform
+        if platform.system() == "Windows":
+            cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(device_id)
+        if not cap.isOpened():
+            return None
+
+        # 设置期望分辨率
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # 读取实际分辨率（DirectShow 可能不支持设置的值）
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"[CaptureCard] 设备{device_id} 实际分辨率: {actual_w}x{actual_h}")
+
+        # 如果实际分辨率过低，尝试常见的高分辨率
+        if actual_w < 1280:
+            for try_w, try_h in [(1920, 1080), (1280, 720)]:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, try_w)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, try_h)
+                new_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                new_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                if new_w >= 1280:
+                    print(f"[CaptureCard] 分辨率已调整为: {new_w}x{new_h}")
+                    break
+
+        return cap
+
     def start(self, device_id=0, width=1920, height=1080):
         """启动视频采集"""
         self.device_id = device_id
+        self._target_width = width
+        self._target_height = height
         if not HAS_CV2:
             print("[CaptureCard] OpenCV 未安装，无法启动采集卡")
             return False
         if self.is_running:
             return True
         try:
-            import platform
-            if platform.system() == "Windows":
-                self.cap = cv2.VideoCapture(device_id, cv2.CAP_DSHOW)
-            else:
-                self.cap = cv2.VideoCapture(device_id)
-            if not self.cap.isOpened():
+            self.cap = self._open_device(device_id, width, height)
+            if self.cap is None:
                 print(f"[CaptureCard] 无法打开设备: {device_id}")
                 return False
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self.is_running = True
             self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
             self.capture_thread.start()
-            print(f"[CaptureCard] 已启动: 设备{device_id}, {width}x{height}")
+            print(f"[CaptureCard] 已启动: 设备{device_id}")
             return True
         except Exception as e:
             print(f"[CaptureCard] 启动失败: {e}")
@@ -112,12 +140,12 @@ class CaptureCardManager:
                                     self.cap.release()
                                 except Exception:
                                     pass
-                                time.sleep(1)
-                                import platform
-                                if platform.system() == "Windows":
-                                    self.cap = cv2.VideoCapture(self.device_id, cv2.CAP_DSHOW)
-                                else:
-                                    self.cap = cv2.VideoCapture(self.device_id)
+                                time.sleep(2)
+                                self.cap = self._open_device(
+                                    self.device_id,
+                                    self._target_width,
+                                    self._target_height,
+                                )
                                 fail_count = 0
                             else:
                                 print("[CaptureCard] 多次重新打开设备均失败，停止采集")
@@ -133,12 +161,12 @@ class CaptureCardManager:
                     if reopen_count < max_reopen:
                         reopen_count += 1
                         print(f"[CaptureCard] 设备未打开，尝试重新打开 ({reopen_count}/{max_reopen})")
-                        time.sleep(1)
-                        import platform
-                        if platform.system() == "Windows":
-                            self.cap = cv2.VideoCapture(self.device_id, cv2.CAP_DSHOW)
-                        else:
-                            self.cap = cv2.VideoCapture(self.device_id)
+                        time.sleep(2)
+                        self.cap = self._open_device(
+                            self.device_id,
+                            self._target_width,
+                            self._target_height,
+                        )
                         continue
                     self.is_running = False
                     break

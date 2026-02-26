@@ -29,7 +29,7 @@ def create_stream_routes(device_config):
             # 推流
             try:
                 while True:
-                    jpeg = capture_card.get_frame_as_jpeg(quality=80)
+                    jpeg = capture_card.get_frame_as_jpeg(quality=90)
                     if jpeg:
                         yield (b"--frame\r\n"
                                b"Content-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n")
