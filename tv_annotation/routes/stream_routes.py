@@ -21,14 +21,21 @@ def create_stream_routes(device_config):
                 device_id = device_config.get("device_id", 0)
                 if not capture_card.start(device_id=device_id):
                     return
-            # 等待第一帧
-            for _ in range(30):
+            # 等待稳定帧（连续获取到多帧才开始推流）
+            stable_count = 0
+            for _ in range(60):
                 if capture_card.get_frame() is not None:
-                    break
+                    stable_count += 1
+                    if stable_count >= 3:
+                        break
+                else:
+                    stable_count = 0
                 time.sleep(0.1)
             # 推流
             try:
                 while True:
+                    if not capture_card.is_running:
+                        break
                     jpeg = capture_card.get_frame_as_jpeg(quality=90)
                     if jpeg:
                         yield (b"--frame\r\n"

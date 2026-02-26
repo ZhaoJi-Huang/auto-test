@@ -96,10 +96,24 @@ class CaptureCardManager:
             if self.cap is None:
                 print(f"[CaptureCard] 无法打开设备: {device_id}")
                 return False
+
+            # 预热：丢弃前几帧（采集卡刚启动时帧可能不稳定）
+            warmup_ok = False
+            for _ in range(15):
+                ret, _ = self.cap.read()
+                if ret:
+                    warmup_ok = True
+                time.sleep(0.05)
+            if not warmup_ok:
+                print(f"[CaptureCard] 设备{device_id}预热失败，未能读取到帧")
+                self.cap.release()
+                self.cap = None
+                return False
+
+            print(f"[CaptureCard] 设备{device_id}预热完成，开始采集")
             self.is_running = True
             self.capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
             self.capture_thread.start()
-            print(f"[CaptureCard] 已启动: 设备{device_id}")
             return True
         except Exception as e:
             print(f"[CaptureCard] 启动失败: {e}")
