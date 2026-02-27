@@ -74,6 +74,49 @@ def create_config_routes(device_config, data_dir):
         ok, msg = check_adb_device(tv_ip)
         return jsonify({"success": ok, "message": msg if msg else "设备连接正常"})
 
+    @bp.route("/api/tv/input-devices", methods=["GET"])
+    def list_input_devices():
+        """获取 TV 上的输入设备列表（用于选择 getevent 监听设备）"""
+        tv_ip = device_config.get("tv_ip")
+        if not tv_ip:
+            return jsonify({"success": False, "error": "未配置设备 IP", "data": []})
+        try:
+            import re
+            from common.adb_utils import run_adb
+            result = run_adb(["shell", "getevent", "-pl"],
+                             device_serial=tv_ip, timeout=10)
+            output = result.stdout.decode("utf-8", errors="ignore")
+
+            devices = []
+            current_device = None
+            current_name = ""
+            has_key = False
+
+            for line in output.splitlines():
+                dev_match = re.match(r"add device \d+:\s*(/dev/input/event\d+)", line)
+                if dev_match:
+                    # 保存上一个设备
+                    if current_device and has_key:
+                        devices.append({"path": current_device, "name": current_name})
+                    current_device = dev_match.group(1)
+                    current_name = ""
+                    has_key = False
+                    continue
+                name_match = re.match(r'\s+name:\s+"(.+)"', line)
+                if name_match:
+                    current_name = name_match.group(1)
+                    continue
+                if current_device and re.match(r"\s+KEY", line):
+                    has_key = True
+
+            # 最后一个设备
+            if current_device and has_key:
+                devices.append({"path": current_device, "name": current_name})
+
+            return jsonify({"success": True, "data": devices})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e), "data": []})
+
     @bp.route("/api/tv/version", methods=["GET"])
     def version():
         """版本检查（兼容旧前端）"""
