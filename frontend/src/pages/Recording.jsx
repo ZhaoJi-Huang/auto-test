@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm } from 'antd'
 import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined } from '@ant-design/icons'
-import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep } from '../api'
+import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps } from '../api'
 
 const COMMON_KEYS = [
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'SETTING',
@@ -22,6 +22,7 @@ export default function Recording() {
   const [aiType, setAiType] = useState('ai_navigate')
   const [aiPrompt, setAiPrompt] = useState('')
   const timerRef = useRef(null)
+  const [savedSteps, setSavedSteps] = useState([])
 
   // 插入 Modal 状态
   const [insertModalVisible, setInsertModalVisible] = useState(false)
@@ -55,12 +56,19 @@ export default function Recording() {
   }
 
   const fetchCaseDetail = async (key) => {
-    if (!key) { setCaseDetail(null); return }
+    if (!key) { setCaseDetail(null); setSavedSteps([]); return }
     try {
       const res = await getCase(key)
       setCaseDetail(res.data?.data || res.data)
     } catch (e) {
       setCaseDetail(null)
+    }
+    // 获取已保存的录制步骤
+    try {
+      const res = await getSavedSteps(key)
+      setSavedSteps(res.data?.data || [])
+    } catch (e) {
+      setSavedSteps([])
     }
   }
 
@@ -186,7 +194,7 @@ export default function Recording() {
     }
   }
 
-  const steps = recording ? (status?.steps || []) : (caseDetail?.recorded_steps || [])
+  const steps = recording ? (status?.steps || []) : savedSteps
   const rawKeys = status?.raw_keys || []
 
   // 合并已确认步骤和未分组按键，生成统一的展示列表

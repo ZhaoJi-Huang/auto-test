@@ -31,6 +31,7 @@ export const insertAi = (type, prompt) => api.post('/api/tv/recording/insert_ai'
 export const deleteLastStep = () => api.post('/api/tv/recording/delete_last')
 export const insertStepAt = (index, type, params) => api.post('/api/tv/recording/insert_step_at', { index, type, ...params })
 export const deleteStep = (index) => api.post('/api/tv/recording/delete_step', { index })
+export const getSavedSteps = (caseKey) => api.get(`/api/tv/recording/saved_steps/${caseKey}`)
 
 // 回放
 export const startReplay = (data) => api.post('/api/tv/replay/start', data)

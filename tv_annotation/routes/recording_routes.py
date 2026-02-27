@@ -3,6 +3,9 @@
 提供录制的启动、停止、状态查询、插入指令等 API
 """
 
+import json
+import os
+
 from flask import Blueprint, request, jsonify
 from tv_annotation.recorder import TVRecorder
 
@@ -106,6 +109,22 @@ def create_recording_routes(device_config, scripts_repo_path):
             "connected": bool(device_serial),
             "device_ip": device_serial,
         })
+
+    # ------------------------------------------------------------------
+    # GET /api/tv/recording/saved_steps/<case_key> — 获取已保存的录制步骤
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/recording/saved_steps/<case_key>", methods=["GET"])
+    def get_saved_steps(case_key):
+        """从 steps.json 读取已保存的录制步骤"""
+        steps_path = os.path.join(scripts_repo_path, case_key, "steps.json")
+        if not os.path.exists(steps_path):
+            return jsonify({"success": True, "data": []})
+        try:
+            with open(steps_path, "r", encoding="utf-8") as f:
+                steps = json.load(f)
+            return jsonify({"success": True, "data": steps})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
 
     # ------------------------------------------------------------------
     # POST /api/tv/recording/insert_adb — 插入 ADB 命令
