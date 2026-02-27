@@ -96,11 +96,12 @@ def check_adb_device(device_serial):
 def get_current_activity(device_serial):
     """获取当前 Activity
 
-    通过 dumpsys window 获取 mCurrentFocus
+    通过多种方式尝试获取当前前台 Activity，兼容不同 Android 版本和 TV 系统。
 
     Returns:
         str: Activity 全限定名，如 "com.example.tv/.MainActivity"，获取失败返回 ""
     """
+    # 方式1: dumpsys window windows
     try:
         result = run_adb(
             ["shell", "dumpsys", "window", "windows"],
@@ -108,16 +109,46 @@ def get_current_activity(device_serial):
             timeout=5,
         )
         output = result.stdout.decode("utf-8", errors="ignore")
-        # 匹配 mCurrentFocus=Window{...  <package>/<activity>}
-        match = re.search(r"mCurrentFocus=Window\{[^}]*\s+(\S+/\S+)\}", output)
-        if match:
-            return match.group(1)
-        # 备选：匹配 mFocusedApp
-        match = re.search(r"mFocusedApp=.*\{[^}]*\s+(\S+/\S+)\}", output)
-        if match:
-            return match.group(1)
+        if output:
+            # 标准 Android: mCurrentFocus=Window{...  <package>/<activity>}
+            match = re.search(r"mCurrentFocus=Window\{[^}]*\s+(\S+/\S+)\}", output)
+            if match:
+                return match.group(1)
+            # 标准 Android: mFocusedApp
+            match = re.search(r"mFocusedApp=.*\{[^}]*\s+(\S+/\S+)\}", output)
+            if match:
+                return match.group(1)
+            # TCL 等 TV 系统: imeInputTarget in display# N Window{... <package>/<activity>}
+            match = re.search(r"imeInputTarget in display#\s*\d+\s+Window\{\S+\s+\S+\s+(\S+/\S+)\}", output)
+            if match:
+                return match.group(1)
+            # 备选: mFocusedWindow
+            match = re.search(r"mFocusedWindow=Window\{[^}]*\s+(\S+/\S+)\}", output)
+            if match:
+                return match.group(1)
     except Exception:
         pass
+
+    # 方式2: dumpsys activity activities (适用于部分系统)
+    try:
+        result = run_adb(
+            ["shell", "dumpsys", "activity", "activities"],
+            device_serial=device_serial,
+            timeout=5,
+        )
+        output = result.stdout.decode("utf-8", errors="ignore")
+        if output:
+            # mResumedActivity: ActivityRecord{... com.example/.MainActivity t3}
+            match = re.search(r"mResumedActivity:\s*ActivityRecord\{[^}]*\s+(\S+/\S+)\s", output)
+            if match:
+                return match.group(1)
+            # topResumedActivity
+            match = re.search(r"topResumedActivity=ActivityRecord\{[^}]*\s+(\S+/\S+)\s", output)
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+
     return ""
 
 
