@@ -254,24 +254,36 @@ class TVRecorder:
             self._raw_keys = []
 
     def _flush_raw_keys_with_activity(self):
-        """将未分组的原始按键分组，并实时获取 Activity（调用前需持有 _lock）
+        """将未分组的原始按键分组，并实时获取 Activity
 
-        在录制过程中按键间隔超过阈值时调用，此时 Activity 是实时有效的。
+        注意：此方法会在 lock 外调用 ADB 命令获取 Activity，避免阻塞。
+        调用前需持有 _lock，方法内部会临时释放再重新获取。
         """
         if not self._raw_keys:
             return
-        # 获取当前 Activity 作为这组按键的 after_activity
-        after_activity = get_current_activity(self._device_serial)
-        grouped = self._group_raw_keys(self._raw_keys)
+        # 取出原始按键并释放锁，以便获取 Activity 时不阻塞
+        raw_keys = list(self._raw_keys)
+        self._raw_keys = []
+        # 从已有步骤获取上一步的 after_activity 作为 before
+        before_activity = ""
+        if self._steps:
+            before_activity = self._steps[-1].get("after_activity", "")
+
+        # 释放锁去获取 Activity（ADB 命令可能耗时）
+        self._lock.release()
+        try:
+            if not before_activity:
+                before_activity = get_current_activity(self._device_serial)
+            after_activity = get_current_activity(self._device_serial)
+        finally:
+            self._lock.acquire()
+
+        # 分组并填充 Activity
+        grouped = self._group_raw_keys(raw_keys)
         if grouped:
-            # 第一组的 before_activity：如果已有步骤，取上一步的 after_activity
-            if self._steps:
-                last_step = self._steps[-1]
-                grouped[0]["before_activity"] = last_step.get("after_activity", "")
-            # 最后一组补充 after_activity
+            grouped[0]["before_activity"] = before_activity
             grouped[-1]["after_activity"] = after_activity
         self._steps.extend(grouped)
-        self._raw_keys = []
 
     def insert_step_at(self, index, step):
         """在指定位置插入步骤
@@ -626,11 +638,9 @@ class TVRecorder:
                 current_group = [raw_keys[i]]
         groups.append(current_group)
 
-        # 转换为步骤
+        # 转换为步骤（纯数据转换，不获取 Activity）
         steps = []
         for group in groups:
-            # 获取组首按键的 before_activity 和组尾按键的 after_activity
-            before_activity = get_current_activity(self._device_serial) if not steps else ""
             commands = []
             for i, key_event in enumerate(group):
                 cmd = {
@@ -655,15 +665,10 @@ class TVRecorder:
                 "type": "key_group",
                 "commands": commands,
                 "interval_ms": avg_interval_ms,
-                "before_activity": before_activity,
-                "after_activity": "",  # 停止录制时统一填充
+                "before_activity": "",
+                "after_activity": "",
             }
             steps.append(step)
-
-        # 为各组补充 after_activity（取当前 Activity 作为最后一组的值）
-        if steps:
-            after_activity = get_current_activity(self._device_serial)
-            steps[-1]["after_activity"] = after_activity
 
         return steps
 
