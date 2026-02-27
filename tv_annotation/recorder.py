@@ -56,6 +56,14 @@ class TVRecorder:
         # 按键状态跟踪
         self._key_press_times = {}  # key_code -> 按下时间戳
 
+        # Activity 缓存
+        self._current_activity = ""
+        self._initial_activity = ""
+
+        # getevent 重启控制
+        self._activity_fetch_thread = None
+        self._getevent_intentional_stop = False  # 标记是否为主动停止（获取 Activity）
+
     # ------------------------------------------------------------------
     # 公共属性
     # ------------------------------------------------------------------
@@ -116,6 +124,11 @@ class TVRecorder:
 
         logger.info(f"开始录制: case_key={case_key}, device={self._key_event_device}")
 
+        # 录制开始时获取初始 Activity
+        self._initial_activity = get_current_activity(self._device_serial)
+        self._current_activity = self._initial_activity
+        logger.info(f"初始 Activity: {self._initial_activity}")
+
         # 重置状态
         with self._lock:
             self._case_key = case_key
@@ -141,12 +154,22 @@ class TVRecorder:
         logger.info("停止录制")
         self._is_recording = False
 
+        # 等待 Activity 获取线程完成（如果正在运行）
+        if self._activity_fetch_thread and self._activity_fetch_thread.is_alive():
+            self._activity_fetch_thread.join(timeout=5)
+
         # 终止 getevent 进程
         self._stop_getevent_process()
 
         # 等待监听线程结束
         if self._listen_thread and self._listen_thread.is_alive():
             self._listen_thread.join(timeout=5)
+
+        # 停止 getevent 后获取最终 Activity（此时 ADB 可用）
+        time.sleep(0.1)
+        final_activity = get_current_activity(self._device_serial)
+        if final_activity:
+            self._current_activity = final_activity
 
         # 将剩余原始按键进行分组并追加到 steps
         with self._lock:
@@ -254,35 +277,31 @@ class TVRecorder:
             self._raw_keys = []
 
     def _flush_raw_keys_with_activity(self):
-        """将未分组的原始按键分组，并实时获取 Activity
+        """将未分组的原始按键分组，使用缓存的 Activity 填充
 
-        注意：此方法会在 lock 外调用 ADB 命令获取 Activity，避免阻塞。
-        调用前需持有 _lock，方法内部会临时释放再重新获取。
+        读取 _current_activity（由 _fetch_activity_between_groups 更新），
+        调用前需持有 _lock。
         """
         if not self._raw_keys:
             return
-        # 取出原始按键并释放锁，以便获取 Activity 时不阻塞
         raw_keys = list(self._raw_keys)
         self._raw_keys = []
-        # 从已有步骤获取上一步的 after_activity 作为 before
+
+        # before: 上一步的 after，或初始 Activity
         before_activity = ""
         if self._steps:
             before_activity = self._steps[-1].get("after_activity", "")
+        if not before_activity:
+            before_activity = self._initial_activity
 
-        # 释放锁去获取 Activity（ADB 命令可能耗时）
-        self._lock.release()
-        try:
-            if not before_activity:
-                before_activity = get_current_activity(self._device_serial)
-            after_activity = get_current_activity(self._device_serial)
-        finally:
-            self._lock.acquire()
+        # after: 后台采样的最新 Activity
+        after_activity = self._current_activity
 
         # 分组并填充 Activity
         grouped = self._group_raw_keys(raw_keys)
-        if grouped:
-            grouped[0]["before_activity"] = before_activity
-            grouped[-1]["after_activity"] = after_activity
+        for step in grouped:
+            step["before_activity"] = before_activity
+            step["after_activity"] = after_activity
         self._steps.extend(grouped)
 
     def insert_step_at(self, index, step):
@@ -498,6 +517,58 @@ class TVRecorder:
         self._listen_thread.start()
         logger.info("getevent 监听线程已启动")
 
+    def _fetch_activity_between_groups(self):
+        """在按键组间隔时获取 Activity
+
+        流程：停止 getevent → 获取 Activity → 刷新按键组 → 重启 getevent
+        在独立线程中运行，避免阻塞主流程。
+        """
+        logger.info("开始获取 Activity（暂停 getevent）")
+
+        try:
+            # 1. 停止 getevent 进程，释放 ADB shell
+            self._getevent_intentional_stop = True
+            self._stop_getevent_process()
+
+            # 等待 getevent 进程完全释放
+            time.sleep(0.1)
+
+            # 2. 获取当前 Activity
+            activity = get_current_activity(self._device_serial)
+            if activity:
+                if activity != self._current_activity:
+                    logger.info(f"Activity 变化: {self._current_activity} → {activity}")
+                self._current_activity = activity
+            else:
+                logger.warning("获取 Activity 返回空")
+
+            # 3. 将已有按键分组并填充 Activity
+            with self._lock:
+                self._flush_raw_keys_with_activity()
+
+        except Exception as e:
+            logger.error(f"获取 Activity 异常: {e}")
+        finally:
+            # 4. 重启 getevent 监听（无论是否成功）
+            self._getevent_intentional_stop = False
+            if self._is_recording:
+                self._start_getevent_listener()
+                logger.info("getevent 已重启")
+
+    def _trigger_activity_fetch(self):
+        """触发 Activity 获取（在独立线程中执行，避免阻塞 getevent 读取）"""
+        # 避免重复触发
+        if self._activity_fetch_thread and self._activity_fetch_thread.is_alive():
+            logger.debug("Activity 获取线程正在运行，跳过本次触发")
+            return
+
+        self._activity_fetch_thread = threading.Thread(
+            target=self._fetch_activity_between_groups,
+            name="activity-fetch",
+            daemon=True,
+        )
+        self._activity_fetch_thread.start()
+
     def _stop_getevent_process(self):
         """终止 getevent 子进程"""
         if self._getevent_proc:
@@ -538,7 +609,7 @@ class TVRecorder:
                 stderr_out = proc.stderr.read().decode("utf-8", errors="ignore").strip()
             except Exception:
                 pass
-            if self._is_recording:
+            if self._is_recording and not self._getevent_intentional_stop:
                 logger.warning(
                     f"getevent 进程意外退出 (exit_code={exit_code})"
                     + (f", stderr: {stderr_out}" if stderr_out else "")
@@ -596,13 +667,18 @@ class TVRecorder:
             if is_long_press:
                 key_event["duration_ms"] = int(duration * 1000)
 
+            need_fetch = False
             with self._lock:
-                # 如果与上一个按键间隔超过阈值，先将已有按键分组（此时 Activity 是实时的）
+                # 如果与上一个按键间隔超过阈值，标记需要获取 Activity
                 if self._raw_keys:
                     last_ts = self._raw_keys[-1]["timestamp"]
                     if timestamp - last_ts >= KEY_GROUP_INTERVAL:
-                        self._flush_raw_keys_with_activity()
+                        need_fetch = True
                 self._raw_keys.append(key_event)
+
+            # 在锁外触发 Activity 获取（停止 getevent → 获取 → 重启）
+            if need_fetch:
+                self._trigger_activity_fetch()
 
             logger.debug(f"按键: {key_name} ({'长按' if is_long_press else '短按'})")
         # value == 2 (重复) 忽略
