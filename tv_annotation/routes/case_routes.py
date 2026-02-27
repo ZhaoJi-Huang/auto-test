@@ -188,10 +188,22 @@ def create_case_routes(data_dir, scripts_repo_path):
 
     @bp.route("/api/tv/cases/<key>", methods=["GET"])
     def get_case(key):
-        """获取用例详情"""
+        """获取用例详情（含已录制步骤）"""
         case = _load_case(scripts_repo_path, key)
         if not case:
             return jsonify({"success": False, "error": f"用例 {key} 不存在"}), 404
+
+        # 附带已录制的步骤
+        steps_path = os.path.join(scripts_repo_path, key, "steps.json")
+        if os.path.exists(steps_path):
+            try:
+                with open(steps_path, "r", encoding="utf-8") as f:
+                    case["recorded_steps"] = json.load(f)
+            except Exception:
+                case["recorded_steps"] = []
+        else:
+            case["recorded_steps"] = []
+
         return jsonify({"success": True, "data": case})
 
     # ========== JQL 批量导入 ==========

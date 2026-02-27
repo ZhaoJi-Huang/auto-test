@@ -186,13 +186,13 @@ export default function Recording() {
     }
   }
 
-  const steps = status?.steps || []
+  const steps = recording ? (status?.steps || []) : (caseDetail?.recorded_steps || [])
   const rawKeys = status?.raw_keys || []
 
   // 合并已确认步骤和未分组按键，生成统一的展示列表
   const displayItems = []
   steps.forEach((s, i) => {
-    const base = { seq: displayItems.length + 1, stepIndex: i, editable: true }
+    const base = { seq: displayItems.length + 1, stepIndex: i, editable: recording }
     if (s.type === 'adb_command') {
       displayItems.push({ ...base, type: 'ADB', label: s.description || s.command, color: 'orange' })
     } else if (s.type === 'ai_navigate') {
@@ -204,11 +204,13 @@ export default function Recording() {
       displayItems.push({ ...base, type: '按键组', label: keys, color: 'blue' })
     }
   })
-  rawKeys.forEach((k) => {
-    const name = k.key || '?'
-    const suffix = k.is_long_press ? ' (长按)' : ''
-    displayItems.push({ seq: displayItems.length + 1, type: '按键', label: name + suffix, color: 'cyan', editable: false })
-  })
+  if (recording) {
+    rawKeys.forEach((k) => {
+      const name = k.key || '?'
+      const suffix = k.is_long_press ? ' (长按)' : ''
+      displayItems.push({ seq: displayItems.length + 1, type: '按键', label: name + suffix, color: 'cyan', editable: false })
+    })
+  }
 
   const stepColumns = [
     { title: '#', key: 'seq', dataIndex: 'seq', width: 45 },
