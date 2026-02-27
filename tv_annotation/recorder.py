@@ -150,11 +150,7 @@ class TVRecorder:
 
         # 将剩余原始按键进行分组并追加到 steps
         with self._lock:
-            if self._raw_keys:
-                grouped = self._group_raw_keys(self._raw_keys)
-                self._steps.extend(grouped)
-                self._raw_keys = []
-
+            self._flush_raw_keys_with_activity()
             final_steps = list(self._steps)
 
         # 保存到文件
@@ -183,7 +179,7 @@ class TVRecorder:
 
         # 先将已有原始按键分组
         with self._lock:
-            self._flush_raw_keys()
+            self._flush_raw_keys_with_activity()
 
         # 获取执行前 Activity
         before_activity = get_current_activity(self._device_serial)
@@ -237,7 +233,7 @@ class TVRecorder:
 
         # 先将已有原始按键分组
         with self._lock:
-            self._flush_raw_keys()
+            self._flush_raw_keys_with_activity()
 
         step = {
             "type": ai_type,
@@ -256,6 +252,26 @@ class TVRecorder:
             grouped = self._group_raw_keys(self._raw_keys)
             self._steps.extend(grouped)
             self._raw_keys = []
+
+    def _flush_raw_keys_with_activity(self):
+        """将未分组的原始按键分组，并实时获取 Activity（调用前需持有 _lock）
+
+        在录制过程中按键间隔超过阈值时调用，此时 Activity 是实时有效的。
+        """
+        if not self._raw_keys:
+            return
+        # 获取当前 Activity 作为这组按键的 after_activity
+        after_activity = get_current_activity(self._device_serial)
+        grouped = self._group_raw_keys(self._raw_keys)
+        if grouped:
+            # 第一组的 before_activity：如果已有步骤，取上一步的 after_activity
+            if self._steps:
+                last_step = self._steps[-1]
+                grouped[0]["before_activity"] = last_step.get("after_activity", "")
+            # 最后一组补充 after_activity
+            grouped[-1]["after_activity"] = after_activity
+        self._steps.extend(grouped)
+        self._raw_keys = []
 
     def insert_step_at(self, index, step):
         """在指定位置插入步骤
@@ -569,6 +585,11 @@ class TVRecorder:
                 key_event["duration_ms"] = int(duration * 1000)
 
             with self._lock:
+                # 如果与上一个按键间隔超过阈值，先将已有按键分组（此时 Activity 是实时的）
+                if self._raw_keys:
+                    last_ts = self._raw_keys[-1]["timestamp"]
+                    if timestamp - last_ts >= KEY_GROUP_INTERVAL:
+                        self._flush_raw_keys_with_activity()
                 self._raw_keys.append(key_event)
 
             logger.debug(f"按键: {key_name} ({'长按' if is_long_press else '短按'})")
