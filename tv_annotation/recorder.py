@@ -183,10 +183,7 @@ class TVRecorder:
 
         # 先将已有原始按键分组
         with self._lock:
-            if self._raw_keys:
-                grouped = self._group_raw_keys(self._raw_keys)
-                self._steps.extend(grouped)
-                self._raw_keys = []
+            self._flush_raw_keys()
 
         # 获取执行前 Activity
         before_activity = get_current_activity(self._device_serial)
@@ -240,10 +237,7 @@ class TVRecorder:
 
         # 先将已有原始按键分组
         with self._lock:
-            if self._raw_keys:
-                grouped = self._group_raw_keys(self._raw_keys)
-                self._steps.extend(grouped)
-                self._raw_keys = []
+            self._flush_raw_keys()
 
         step = {
             "type": ai_type,
@@ -255,6 +249,81 @@ class TVRecorder:
 
         logger.info(f"已插入 AI 指令: {ai_type} - {prompt}")
         return True, f"AI 指令已记录"
+
+    def _flush_raw_keys(self):
+        """将未分组的原始按键分组并追加到 _steps（调用前需持有 _lock）"""
+        if self._raw_keys:
+            grouped = self._group_raw_keys(self._raw_keys)
+            self._steps.extend(grouped)
+            self._raw_keys = []
+
+    def insert_step_at(self, index, step):
+        """在指定位置插入步骤
+
+        Args:
+            index: 插入位置（0-based），步骤将插入到该位置之后
+            step: 步骤字典
+
+        Returns:
+            (bool, str): (是否成功, 消息)
+        """
+        if not self._is_recording:
+            return False, "当前没有在录制"
+
+        with self._lock:
+            self._flush_raw_keys()
+
+            # index 范围：0 ~ len(self._steps)
+            if index < 0 or index > len(self._steps):
+                return False, f"索引超出范围（0-{len(self._steps)}）"
+
+            self._steps.insert(index, step)
+
+        logger.info(f"已在位置 {index} 插入步骤: {step.get('type')}")
+        return True, f"已在位置 {index} 插入步骤"
+
+    def insert_key_at(self, index, key_name):
+        """在指定位置插入按键步骤
+
+        Args:
+            index: 插入位置（0-based）
+            key_name: 按键名称，如 "ENTER"、"UP"
+
+        Returns:
+            (bool, str): (是否成功, 消息)
+        """
+        adb_keycode = get_adb_keycode(key_name)
+        step = {
+            "type": "key_group",
+            "commands": [{"key": key_name, "adb_command": f"input keyevent {adb_keycode}"}],
+            "interval_ms": 0,
+            "before_activity": "",
+            "after_activity": "",
+        }
+        return self.insert_step_at(index, step)
+
+    def delete_step(self, index):
+        """删除指定位置的步骤
+
+        Args:
+            index: 步骤索引（0-based）
+
+        Returns:
+            (bool, str): (是否成功, 消息)
+        """
+        if not self._is_recording:
+            return False, "当前没有在录制"
+
+        with self._lock:
+            self._flush_raw_keys()
+
+            if index < 0 or index >= len(self._steps):
+                return False, f"索引超出范围（0-{len(self._steps) - 1}）"
+
+            removed = self._steps.pop(index)
+
+        logger.info(f"已删除位置 {index} 的步骤: {removed.get('type')}")
+        return True, f"已删除位置 {index} 的步骤（{removed.get('type')}）"
 
     def delete_last_step(self):
         """删除最后一步操作

@@ -166,6 +166,91 @@ def create_recording_routes(device_config, scripts_repo_path):
             return jsonify({"success": False, "error": msg})
 
     # ------------------------------------------------------------------
+    # POST /api/tv/recording/insert_step_at — 在指定位置插入步骤
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/recording/insert_step_at", methods=["POST"])
+    def insert_step_at():
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求体为空"}), 400
+
+        index = data.get("index")
+        step_type = data.get("type", "").strip()
+
+        if index is None:
+            return jsonify({"success": False, "error": "缺少 index 参数"}), 400
+        if not step_type:
+            return jsonify({"success": False, "error": "缺少 type 参数"}), 400
+
+        try:
+            index = int(index)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "index 必须为整数"}), 400
+
+        recorder = _get_recorder()
+
+        if step_type == "key":
+            key_name = data.get("key", "").strip().upper()
+            if not key_name:
+                return jsonify({"success": False, "error": "缺少 key 参数"}), 400
+            ok, msg = recorder.insert_key_at(index, key_name)
+        elif step_type == "adb_command":
+            command = data.get("command", "").strip()
+            description = data.get("description", "").strip()
+            if not command:
+                return jsonify({"success": False, "error": "缺少 command 参数"}), 400
+            step = {
+                "type": "adb_command",
+                "command": command,
+                "description": description,
+                "before_activity": "",
+                "after_activity": "",
+            }
+            ok, msg = recorder.insert_step_at(index, step)
+        elif step_type in ("ai_navigate", "ai_verify"):
+            prompt = data.get("prompt", "").strip()
+            if not prompt:
+                return jsonify({"success": False, "error": "缺少 prompt 参数"}), 400
+            step = {
+                "type": step_type,
+                "prompt": prompt,
+            }
+            ok, msg = recorder.insert_step_at(index, step)
+        else:
+            return jsonify({"success": False, "error": f"不支持的类型: {step_type}"}), 400
+
+        if ok:
+            return jsonify({"success": True, "message": msg})
+        else:
+            return jsonify({"success": False, "error": msg})
+
+    # ------------------------------------------------------------------
+    # POST /api/tv/recording/delete_step — 删除指定位置步骤
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/recording/delete_step", methods=["POST"])
+    def delete_step():
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求体为空"}), 400
+
+        index = data.get("index")
+        if index is None:
+            return jsonify({"success": False, "error": "缺少 index 参数"}), 400
+
+        try:
+            index = int(index)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "index 必须为整数"}), 400
+
+        recorder = _get_recorder()
+        ok, msg = recorder.delete_step(index)
+
+        if ok:
+            return jsonify({"success": True, "message": msg})
+        else:
+            return jsonify({"success": False, "error": msg})
+
+    # ------------------------------------------------------------------
     # 旧前端兼容路由
     # ------------------------------------------------------------------
     @bp.route("/api/tv/recording/send_key", methods=["POST"])
