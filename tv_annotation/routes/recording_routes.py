@@ -100,6 +100,7 @@ def create_recording_routes(device_config, scripts_repo_path):
             "case_key": recorder.case_key or "",
             "step_count": recorder.step_count,
             "steps": recorder.steps,
+            "raw_keys": recorder.raw_keys,
             "session_dir": None,
             "start_time": None,
             "connected": bool(device_serial),

@@ -80,6 +80,12 @@ class TVRecorder:
         with self._lock:
             return list(self._steps)
 
+    @property
+    def raw_keys(self):
+        """返回当前未分组的原始按键列表"""
+        with self._lock:
+            return list(self._raw_keys)
+
     # ------------------------------------------------------------------
     # 录制控制
     # ------------------------------------------------------------------
