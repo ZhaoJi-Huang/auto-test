@@ -324,16 +324,46 @@ class TVRecorder:
         if not candidates:
             return None
 
-        # 优先选择名称中包含 ir / remote / rc 的设备
+        # 排除触屏/鼠标设备
+        exclude_keywords = ["touch", "mouse", "touchscreen", "touchpad", "trackpad"]
+
+        # 第一优先级：名称明确包含 "ir receiver" / "ir remote" / "remote control"
         for device_path, name in candidates:
             name_lower = name.lower()
-            if any(kw in name_lower for kw in ["ir", "remote", "rc"]):
+            if any(ex in name_lower for ex in exclude_keywords):
+                continue
+            if any(kw in name_lower for kw in ["ir receiver", "ir remote", "remote control"]):
+                logger.info(f"自动选择遥控器设备: {device_path} ({name})")
+                return device_path
+
+        # 第二优先级：名称包含 ir / remote / rc / cec（但排除 touch/mouse）
+        for device_path, name in candidates:
+            name_lower = name.lower()
+            if any(ex in name_lower for ex in exclude_keywords):
+                continue
+            if any(kw in name_lower for kw in ["ir", "remote", "rc", "cec"]):
                 logger.info(f"自动选择输入设备: {device_path} ({name})")
                 return device_path
 
-        # 没有优先设备，返回第一个
+        # 第三优先级：名称包含 keypad（物理按键，兜底）
+        for device_path, name in candidates:
+            name_lower = name.lower()
+            if any(ex in name_lower for ex in exclude_keywords):
+                continue
+            if "keypad" in name_lower:
+                logger.info(f"使用 keypad 输入设备: {device_path} ({name})")
+                return device_path
+
+        # 最后兜底：返回第一个非 touch/mouse 设备
+        for device_path, name in candidates:
+            name_lower = name.lower()
+            if not any(ex in name_lower for ex in exclude_keywords):
+                logger.info(f"使用默认输入设备: {device_path} ({name})")
+                return device_path
+
+        # 全是 touch/mouse，返回第一个
         device_path, name = candidates[0]
-        logger.info(f"使用默认输入设备: {device_path} ({name})")
+        logger.info(f"使用兜底输入设备: {device_path} ({name})")
         return device_path
 
     def _start_getevent_listener(self):
