@@ -96,59 +96,35 @@ def check_adb_device(device_serial):
 def get_current_activity(device_serial):
     """获取当前 Activity
 
-    通过多种方式尝试获取当前前台 Activity，兼容不同 Android 版本和 TV 系统。
+    通过 dumpsys window | grep mCurrentFocus 获取（设备端 grep，速度更快）
 
     Returns:
         str: Activity 全限定名，如 "com.example.tv/.MainActivity"，获取失败返回 ""
     """
-    # 方式1: dumpsys window windows
+    import logging
+    logger = logging.getLogger(__name__)
     try:
         result = run_adb(
-            ["shell", "dumpsys", "window", "windows"],
+            ["shell", "dumpsys window | grep mCurrentFocus"],
             device_serial=device_serial,
             timeout=5,
         )
-        output = result.stdout.decode("utf-8", errors="ignore")
+        output = result.stdout.decode("utf-8", errors="ignore").strip()
+        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
+        logger.info(f"get_current_activity: rc={result.returncode}, stdout='{output[:200]}', stderr='{stderr[:100]}'")
         if output:
-            # 标准 Android: mCurrentFocus=Window{...  <package>/<activity>}
-            match = re.search(r"mCurrentFocus=Window\{[^}]*\s+(\S+/\S+)\}", output)
+            # 匹配两种格式：
+            # 1. com.tcl.cyberui/com.tcl.cyberui.MainActivity （包名/Activity）
+            # 2. com.tcl.settings （仅包名，无 Activity）
+            match = re.search(r"mCurrentFocus=Window\{[^}]*\s+(\S+)\}", output)
             if match:
                 return match.group(1)
-            # 标准 Android: mFocusedApp
-            match = re.search(r"mFocusedApp=.*\{[^}]*\s+(\S+/\S+)\}", output)
-            if match:
-                return match.group(1)
-            # TCL 等 TV 系统: imeInputTarget in display# N Window{... <package>/<activity>}
-            match = re.search(r"imeInputTarget in display#\s*\d+\s+Window\{\S+\s+\S+\s+(\S+/\S+)\}", output)
-            if match:
-                return match.group(1)
-            # 备选: mFocusedWindow
-            match = re.search(r"mFocusedWindow=Window\{[^}]*\s+(\S+/\S+)\}", output)
-            if match:
-                return match.group(1)
-    except Exception:
-        pass
-
-    # 方式2: dumpsys activity activities (适用于部分系统)
-    try:
-        result = run_adb(
-            ["shell", "dumpsys", "activity", "activities"],
-            device_serial=device_serial,
-            timeout=5,
-        )
-        output = result.stdout.decode("utf-8", errors="ignore")
-        if output:
-            # mResumedActivity: ActivityRecord{... com.example/.MainActivity t3}
-            match = re.search(r"mResumedActivity:\s*ActivityRecord\{[^}]*\s+(\S+/\S+)\s", output)
-            if match:
-                return match.group(1)
-            # topResumedActivity
-            match = re.search(r"topResumedActivity=ActivityRecord\{[^}]*\s+(\S+/\S+)\s", output)
-            if match:
-                return match.group(1)
-    except Exception:
-        pass
-
+            else:
+                logger.warning(f"get_current_activity: 输出不匹配正则: '{output}'")
+        else:
+            logger.warning(f"get_current_activity: 输出为空, rc={result.returncode}, stderr='{stderr}'")
+    except Exception as e:
+        logger.warning(f"get_current_activity 异常: {e}")
     return ""
 
 
