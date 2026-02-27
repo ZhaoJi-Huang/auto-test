@@ -90,3 +90,10 @@ backend/
 ## Codebase Language
 
 Comments and UI strings are in Chinese.
+
+## Git 工作流
+
+- 修改代码后自动提交并 push 到远程仓库，无需等用户确认
+- commit message 使用中文，格式：简述用户问题 + 修改内容
+- 前端代码在 `backend/frontend/` 目录下，与后端同属一个 Git 仓库（feature 分支）
+- 如果同时修改了外部 `../frontend/` 的文件，需同步复制到 `backend/frontend/` 再提交
