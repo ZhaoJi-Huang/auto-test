@@ -127,6 +127,171 @@ def create_recording_routes(device_config, scripts_repo_path):
             return jsonify({"success": False, "error": str(e)})
 
     # ------------------------------------------------------------------
+    # 已保存步骤的编辑操作（非录制状态下编辑 steps.json）
+    # ------------------------------------------------------------------
+
+    def _load_saved_steps(case_key):
+        """读取 steps.json"""
+        path = os.path.join(scripts_repo_path, case_key, "steps.json")
+        if not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _save_steps(case_key, steps):
+        """保存 steps.json"""
+        case_dir = os.path.join(scripts_repo_path, case_key)
+        os.makedirs(case_dir, exist_ok=True)
+        path = os.path.join(case_dir, "steps.json")
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(steps, f, ensure_ascii=False, indent=2)
+        if os.path.exists(path):
+            os.remove(path)
+        os.rename(tmp_path, path)
+
+    @bp.route("/api/tv/recording/saved_steps/<case_key>/insert", methods=["POST"])
+    def insert_saved_step(case_key):
+        """在已保存步骤的指定位置插入步骤"""
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求体为空"}), 400
+
+        index = data.get("index")
+        step_type = data.get("type", "").strip()
+        if index is None:
+            return jsonify({"success": False, "error": "缺少 index 参数"}), 400
+        if not step_type:
+            return jsonify({"success": False, "error": "缺少 type 参数"}), 400
+
+        try:
+            index = int(index)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "index 必须为整数"}), 400
+
+        steps = _load_saved_steps(case_key)
+        if index < 0 or index > len(steps):
+            return jsonify({"success": False, "error": f"索引超出范围（0-{len(steps)}）"}), 400
+
+        if step_type == "key":
+            key_name = data.get("key", "").strip().upper()
+            if not key_name:
+                return jsonify({"success": False, "error": "缺少 key 参数"}), 400
+            from tv_annotation.key_mappings import get_adb_keycode
+            adb_keycode = get_adb_keycode(key_name)
+            step = {
+                "type": "key_group",
+                "commands": [{"key": key_name, "adb_command": f"input keyevent {adb_keycode}"}],
+                "interval_ms": 0,
+                "before_activity": "",
+                "after_activity": "",
+            }
+        elif step_type == "adb_command":
+            command = data.get("command", "").strip()
+            if not command:
+                return jsonify({"success": False, "error": "缺少 command 参数"}), 400
+            step = {
+                "type": "adb_command",
+                "command": command,
+                "description": data.get("description", "").strip(),
+                "before_activity": "",
+                "after_activity": "",
+            }
+        elif step_type in ("ai_navigate", "ai_verify"):
+            prompt = data.get("prompt", "").strip()
+            if not prompt:
+                return jsonify({"success": False, "error": "缺少 prompt 参数"}), 400
+            step = {"type": step_type, "prompt": prompt}
+        else:
+            return jsonify({"success": False, "error": f"不支持的类型: {step_type}"}), 400
+
+        steps.insert(index, step)
+        _save_steps(case_key, steps)
+        return jsonify({"success": True, "message": f"已在位置 {index} 插入步骤", "data": steps})
+
+    @bp.route("/api/tv/recording/saved_steps/<case_key>/delete", methods=["POST"])
+    def delete_saved_step(case_key):
+        """删除已保存步骤的指定位置"""
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求体为空"}), 400
+
+        index = data.get("index")
+        if index is None:
+            return jsonify({"success": False, "error": "缺少 index 参数"}), 400
+
+        try:
+            index = int(index)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "index 必须为整数"}), 400
+
+        steps = _load_saved_steps(case_key)
+        if index < 0 or index >= len(steps):
+            return jsonify({"success": False, "error": f"索引超出范围（0-{len(steps) - 1}）"}), 400
+
+        removed = steps.pop(index)
+        _save_steps(case_key, steps)
+        return jsonify({"success": True, "message": f"已删除位置 {index} 的步骤（{removed.get('type')}）", "data": steps})
+
+    @bp.route("/api/tv/recording/saved_steps/<case_key>/update", methods=["POST"])
+    def update_saved_step(case_key):
+        """修改已保存步骤的指定位置"""
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求体为空"}), 400
+
+        index = data.get("index")
+        step_type = data.get("type", "").strip()
+        if index is None:
+            return jsonify({"success": False, "error": "缺少 index 参数"}), 400
+        if not step_type:
+            return jsonify({"success": False, "error": "缺少 type 参数"}), 400
+
+        try:
+            index = int(index)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "error": "index 必须为整数"}), 400
+
+        steps = _load_saved_steps(case_key)
+        if index < 0 or index >= len(steps):
+            return jsonify({"success": False, "error": f"索引超出范围（0-{len(steps) - 1}）"}), 400
+
+        if step_type == "key":
+            key_name = data.get("key", "").strip().upper()
+            if not key_name:
+                return jsonify({"success": False, "error": "缺少 key 参数"}), 400
+            from tv_annotation.key_mappings import get_adb_keycode
+            adb_keycode = get_adb_keycode(key_name)
+            steps[index] = {
+                "type": "key_group",
+                "commands": [{"key": key_name, "adb_command": f"input keyevent {adb_keycode}"}],
+                "interval_ms": 0,
+                "before_activity": "",
+                "after_activity": "",
+            }
+        elif step_type == "adb_command":
+            command = data.get("command", "").strip()
+            if not command:
+                return jsonify({"success": False, "error": "缺少 command 参数"}), 400
+            steps[index] = {
+                "type": "adb_command",
+                "command": command,
+                "description": data.get("description", "").strip(),
+                "before_activity": "",
+                "after_activity": "",
+            }
+        elif step_type in ("ai_navigate", "ai_verify"):
+            prompt = data.get("prompt", "").strip()
+            if not prompt:
+                return jsonify({"success": False, "error": "缺少 prompt 参数"}), 400
+            steps[index] = {"type": step_type, "prompt": prompt}
+        else:
+            return jsonify({"success": False, "error": f"不支持的类型: {step_type}"}), 400
+
+        _save_steps(case_key, steps)
+        return jsonify({"success": True, "message": f"已修改位置 {index} 的步骤", "data": steps})
+
+    # ------------------------------------------------------------------
     # POST /api/tv/recording/insert_adb — 插入 ADB 命令
     # ------------------------------------------------------------------
     @bp.route("/api/tv/recording/insert_adb", methods=["POST"])

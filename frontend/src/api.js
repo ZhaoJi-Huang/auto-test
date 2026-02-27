@@ -32,6 +32,9 @@ export const deleteLastStep = () => api.post('/api/tv/recording/delete_last')
 export const insertStepAt = (index, type, params) => api.post('/api/tv/recording/insert_step_at', { index, type, ...params })
 export const deleteStep = (index) => api.post('/api/tv/recording/delete_step', { index })
 export const getSavedSteps = (caseKey) => api.get(`/api/tv/recording/saved_steps/${caseKey}`)
+export const insertSavedStep = (caseKey, index, type, params) => api.post(`/api/tv/recording/saved_steps/${caseKey}/insert`, { index, type, ...params })
+export const deleteSavedStep = (caseKey, index) => api.post(`/api/tv/recording/saved_steps/${caseKey}/delete`, { index })
+export const updateSavedStep = (caseKey, index, type, params) => api.post(`/api/tv/recording/saved_steps/${caseKey}/update`, { index, type, ...params })
 
 // 回放
 export const startReplay = (data) => api.post('/api/tv/replay/start', data)

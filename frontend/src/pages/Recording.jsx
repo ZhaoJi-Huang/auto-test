@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm } from 'antd'
-import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined } from '@ant-design/icons'
-import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps } from '../api'
+import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep } from '../api'
 
 const COMMON_KEYS = [
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'SETTING',
@@ -24,15 +24,16 @@ export default function Recording() {
   const timerRef = useRef(null)
   const [savedSteps, setSavedSteps] = useState([])
 
-  // 插入 Modal 状态
-  const [insertModalVisible, setInsertModalVisible] = useState(false)
-  const [insertIndex, setInsertIndex] = useState(0)
-  const [insertType, setInsertType] = useState('key')
-  const [insertKey, setInsertKey] = useState('ENTER')
-  const [insertAdbCmd, setInsertAdbCmd] = useState('')
-  const [insertAdbDescription, setInsertAdbDescription] = useState('')
-  const [insertAiType, setInsertAiType] = useState('ai_navigate')
-  const [insertAiPrompt, setInsertAiPrompt] = useState('')
+  // 插入/编辑 Modal 状态
+  const [modalVisible, setModalVisible] = useState(false)
+  const [modalMode, setModalMode] = useState('insert') // 'insert' | 'edit'
+  const [modalIndex, setModalIndex] = useState(0)
+  const [modalStepType, setModalStepType] = useState('key')
+  const [modalKey, setModalKey] = useState('ENTER')
+  const [modalAdbCmd, setModalAdbCmd] = useState('')
+  const [modalAdbDesc, setModalAdbDesc] = useState('')
+  const [modalAiType, setModalAiType] = useState('ai_navigate')
+  const [modalAiPrompt, setModalAiPrompt] = useState('')
 
   const fetchCases = async () => {
     try {
@@ -151,44 +152,97 @@ export default function Recording() {
     }
   }
 
-  const handleDeleteStep = async (index) => {
+  const handleDeleteStepByIndex = async (index) => {
     try {
-      await deleteStep(index)
+      if (recording) {
+        await deleteStep(index)
+      } else {
+        if (!selectedCase) return
+        await deleteSavedStep(selectedCase, index)
+      }
       message.success('已删除步骤')
-      fetchStatus()
+      recording ? fetchStatus() : fetchCaseDetail(selectedCase)
     } catch (e) {
       message.error('删除失败: ' + (e.response?.data?.error || e.message))
     }
   }
 
-  const openInsertModal = (afterIndex) => {
-    setInsertIndex(afterIndex)
-    setInsertType('key')
-    setInsertKey('ENTER')
-    setInsertAdbCmd('')
-    setInsertAdbDescription('')
-    setInsertAiType('ai_navigate')
-    setInsertAiPrompt('')
-    setInsertModalVisible(true)
+  const resetModal = () => {
+    setModalStepType('key')
+    setModalKey('ENTER')
+    setModalAdbCmd('')
+    setModalAdbDesc('')
+    setModalAiType('ai_navigate')
+    setModalAiPrompt('')
   }
 
-  const handleInsertStepAt = async () => {
+  const openInsertModal = (afterIndex) => {
+    setModalMode('insert')
+    setModalIndex(afterIndex)
+    resetModal()
+    setModalVisible(true)
+  }
+
+  const openEditModal = (index, step) => {
+    setModalMode('edit')
+    setModalIndex(index)
+    if (step.type === 'adb_command') {
+      setModalStepType('adb_command')
+      setModalAdbCmd(step.command || '')
+      setModalAdbDesc(step.description || '')
+    } else if (step.type === 'ai_navigate' || step.type === 'ai_verify') {
+      setModalStepType('ai')
+      setModalAiType(step.type)
+      setModalAiPrompt(step.prompt || '')
+    } else if (step.type === 'key_group') {
+      setModalStepType('key')
+      const firstKey = step.commands?.[0]?.key || 'ENTER'
+      setModalKey(firstKey)
+    }
+    setModalVisible(true)
+  }
+
+  const getModalParams = () => {
+    let params = {}
+    let type = modalStepType
+    if (modalStepType === 'key') {
+      params = { key: modalKey }
+    } else if (modalStepType === 'adb_command') {
+      if (!modalAdbCmd) { message.warning('请输入 ADB 命令'); return null }
+      params = { command: modalAdbCmd, description: modalAdbDesc }
+    } else {
+      if (!modalAiPrompt) { message.warning('请输入 AI 指令'); return null }
+      params = { prompt: modalAiPrompt }
+      type = modalAiType
+    }
+    return { type, params }
+  }
+
+  const handleModalOk = async () => {
+    const result = getModalParams()
+    if (!result) return
+    const { type, params } = result
     try {
-      let params = {}
-      if (insertType === 'key') {
-        params = { key: insertKey }
-      } else if (insertType === 'adb_command') {
-        if (!insertAdbCmd) { message.warning('请输入 ADB 命令'); return }
-        params = { command: insertAdbCmd, description: insertAdbDescription }
+      if (modalMode === 'insert') {
+        if (recording) {
+          await insertStepAt(modalIndex, type, params)
+        } else {
+          if (!selectedCase) return
+          await insertSavedStep(selectedCase, modalIndex, type, params)
+        }
+        message.success('步骤已插入')
       } else {
-        if (!insertAiPrompt) { message.warning('请输入 AI 指令'); return }
-        params = { prompt: insertAiPrompt }
+        if (recording) {
+          await deleteStep(modalIndex)
+          await insertStepAt(modalIndex, type, params)
+        } else {
+          if (!selectedCase) return
+          await updateSavedStep(selectedCase, modalIndex, type, params)
+        }
+        message.success('步骤已修改')
       }
-      const type = insertType === 'key' || insertType === 'adb_command' ? insertType : insertAiType
-      await insertStepAt(insertIndex, type, params)
-      message.success('步骤已插入')
-      setInsertModalVisible(false)
-      fetchStatus()
+      setModalVisible(false)
+      recording ? fetchStatus() : fetchCaseDetail(selectedCase)
     } catch (e) {
       message.error('插入失败: ' + (e.response?.data?.error || e.message))
     }
@@ -200,7 +254,7 @@ export default function Recording() {
   // 合并已确认步骤和未分组按键，生成统一的展示列表
   const displayItems = []
   steps.forEach((s, i) => {
-    const base = { seq: displayItems.length + 1, stepIndex: i, editable: recording }
+    const base = { seq: displayItems.length + 1, stepIndex: i, editable: true, rawStep: s }
     if (s.type === 'adb_command') {
       displayItems.push({ ...base, type: 'ADB', label: s.description || s.command, color: 'orange' })
     } else if (s.type === 'ai_navigate') {
@@ -228,8 +282,8 @@ export default function Recording() {
     },
     { title: '内容', key: 'label', dataIndex: 'label', ellipsis: true },
     {
-      title: '操作', key: 'action', width: 80,
-      render: (_, r) => recording && r.editable ? (
+      title: '操作', key: 'action', width: 110,
+      render: (_, r) => r.editable ? (
         <Space size={4}>
           <Button
             type="text"
@@ -238,7 +292,14 @@ export default function Recording() {
             onClick={() => openInsertModal(r.stepIndex + 1)}
             title="在此步骤后插入"
           />
-          <Popconfirm title="确定删除此步骤？" onConfirm={() => handleDeleteStep(r.stepIndex)} okText="删除" cancelText="取消">
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => openEditModal(r.stepIndex, r.rawStep)}
+            title="修改此步骤"
+          />
+          <Popconfirm title="确定删除此步骤？" onConfirm={() => handleDeleteStepByIndex(r.stepIndex)} okText="删除" cancelText="取消">
             <Button type="text" size="small" danger icon={<DeleteOutlined />} title="删除此步骤" />
           </Popconfirm>
         </Space>
@@ -388,7 +449,7 @@ export default function Recording() {
             title={`已录制步骤 (${displayItems.length})`}
             extra={
               <Space size={4}>
-                <Button size="small" icon={<PlusOutlined />} onClick={() => openInsertModal(0)} disabled={!recording}>
+                <Button size="small" icon={<PlusOutlined />} onClick={() => openInsertModal(0)} disabled={displayItems.length === 0 && !recording && !selectedCase}>
                   在开头插入
                 </Button>
                 <Button size="small" danger icon={<DeleteOutlined />} onClick={handleDeleteLast} disabled={!recording || displayItems.length === 0}>
@@ -410,46 +471,46 @@ export default function Recording() {
       </div>
 
       <Modal
-        title={`在位置 ${insertIndex} 插入步骤`}
-        open={insertModalVisible}
-        onOk={handleInsertStepAt}
-        onCancel={() => setInsertModalVisible(false)}
-        okText="插入"
+        title={modalMode === 'insert' ? `在位置 ${modalIndex} 插入步骤` : `修改第 ${modalIndex + 1} 步`}
+        open={modalVisible}
+        onOk={handleModalOk}
+        onCancel={() => setModalVisible(false)}
+        okText={modalMode === 'insert' ? '插入' : '保存'}
         cancelText="取消"
       >
         <div style={{ marginBottom: 16 }}>
           <span style={{ marginRight: 8 }}>类型：</span>
-          <Radio.Group value={insertType} onChange={e => setInsertType(e.target.value)}>
+          <Radio.Group value={modalStepType} onChange={e => setModalStepType(e.target.value)}>
             <Radio.Button value="key">按键</Radio.Button>
             <Radio.Button value="adb_command">ADB 命令</Radio.Button>
             <Radio.Button value="ai">AI 指令</Radio.Button>
           </Radio.Group>
         </div>
 
-        {insertType === 'key' && (
+        {modalStepType === 'key' && (
           <Select
             style={{ width: '100%' }}
-            value={insertKey}
-            onChange={setInsertKey}
+            value={modalKey}
+            onChange={setModalKey}
             showSearch
             options={COMMON_KEYS.map(k => ({ label: k, value: k }))}
           />
         )}
 
-        {insertType === 'adb_command' && (
+        {modalStepType === 'adb_command' && (
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Input placeholder="ADB 命令" value={insertAdbCmd} onChange={e => setInsertAdbCmd(e.target.value)} />
-            <Input placeholder="描述（可选）" value={insertAdbDescription} onChange={e => setInsertAdbDescription(e.target.value)} />
+            <Input placeholder="ADB 命令" value={modalAdbCmd} onChange={e => setModalAdbCmd(e.target.value)} />
+            <Input placeholder="描述（可选）" value={modalAdbDesc} onChange={e => setModalAdbDesc(e.target.value)} />
           </Space>
         )}
 
-        {insertType === 'ai' && (
+        {modalStepType === 'ai' && (
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Radio.Group value={insertAiType} onChange={e => setInsertAiType(e.target.value)}>
+            <Radio.Group value={modalAiType} onChange={e => setModalAiType(e.target.value)}>
               <Radio.Button value="ai_navigate">AI 导航</Radio.Button>
               <Radio.Button value="ai_verify">AI 验证</Radio.Button>
             </Radio.Group>
-            <Input.TextArea placeholder="AI 指令描述" value={insertAiPrompt} onChange={e => setInsertAiPrompt(e.target.value)} rows={3} />
+            <Input.TextArea placeholder="AI 指令描述" value={modalAiPrompt} onChange={e => setModalAiPrompt(e.target.value)} rows={3} />
           </Space>
         )}
       </Modal>
