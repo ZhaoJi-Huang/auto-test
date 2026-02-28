@@ -14,6 +14,7 @@ import Replay from './pages/Replay'
 import TestPlan from './pages/TestPlan'
 import Statistics from './pages/Statistics'
 import GitCollab from './pages/GitCollab'
+import RemoteControl from './components/RemoteControl'
 
 const { Sider, Content } = Layout
 
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="/stats" element={<Statistics />} />
             <Route path="/git" element={<GitCollab />} />
           </Routes>
+          {['/', '/recording', '/replay'].includes(location.pathname) && <RemoteControl />}
         </Content>
       </Layout>
     </Layout>
