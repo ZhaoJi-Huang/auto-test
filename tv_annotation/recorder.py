@@ -626,6 +626,9 @@ class TVRecorder:
 
         if value == 1:
             # 按下
+            old_ts = self._key_press_times.get(code)
+            if old_ts is not None:
+                logger.info(f"按键重复按下: code={code:#06x}, 覆盖旧时间戳 (间隔={timestamp - old_ts:.3f}s)")
             self._key_press_times[code] = timestamp
         elif value == 0:
             # 释放
@@ -655,7 +658,7 @@ class TVRecorder:
                         self._flush_raw_keys_with_activity()
                 self._raw_keys.append(key_event)
 
-            logger.debug(f"按键: {key_name} ({'长按' if is_long_press else '短按'})")
+            logger.info(f"按键释放: {key_name}, duration={duration:.3f}s, is_long_press={is_long_press}")
         # value == 2 (重复) 忽略
 
     # ------------------------------------------------------------------

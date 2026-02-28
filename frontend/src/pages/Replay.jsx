@@ -29,7 +29,7 @@ export default function Replay() {
       const res = await getReplayStatus()
       const data = res.data?.data || res.data
       setStatus(data)
-      setReplaying(data?.replaying || false)
+      setReplaying(data?.is_replaying || false)
     } catch (e) {
       // 静默
     }
@@ -102,8 +102,8 @@ export default function Replay() {
 
   const currentStep = status?.current_step || 0
   const totalSteps = status?.total_steps || 0
-  const currentRound = status?.current_round || 0
-  const totalRounds = status?.total_rounds || repeatCount
+  const currentRound = status?.current_run || 0
+  const totalRounds = status?.total_runs || repeatCount
   const stepPercent = totalSteps > 0 ? Math.round((currentStep / totalSteps) * 100) : 0
 
   const resultColumns = [

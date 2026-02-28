@@ -112,6 +112,10 @@ export default function Recording() {
       message.success('录制已停止')
       setRecording(false)
       fetchStatus()
+      // 重新加载已保存的步骤，确保显示本次录制结果
+      if (selectedCase) {
+        fetchCaseDetail(selectedCase)
+      }
     } catch (e) {
       message.error('停止录制失败: ' + (e.response?.data?.error || e.message))
     }
