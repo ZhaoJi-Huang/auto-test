@@ -36,6 +36,9 @@ export const insertSavedStep = (caseKey, index, type, params) => api.post(`/api/
 export const deleteSavedStep = (caseKey, index) => api.post(`/api/tv/recording/saved_steps/${caseKey}/delete`, { index })
 export const updateSavedStep = (caseKey, index, type, params) => api.post(`/api/tv/recording/saved_steps/${caseKey}/update`, { index, type, ...params })
 
+// 遥控器
+export const sendKey = (key) => api.post('/api/tv/recording/send_key', { key })
+
 // 回放
 export const startReplay = (data) => api.post('/api/tv/replay/start', data)
 export const stopReplay = () => api.post('/api/tv/replay/stop')

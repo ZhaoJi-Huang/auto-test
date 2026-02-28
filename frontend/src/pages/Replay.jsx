@@ -9,6 +9,7 @@ import {
   ReloadOutlined
 } from '@ant-design/icons'
 import { getCases, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult } from '../api'
+import RemoteControl from '../components/RemoteControl'
 
 // 步骤截图 URL：通过后端 API 获取
 const getScreenshotUrl = (screenshotPath) => {
@@ -334,14 +335,17 @@ export default function Replay() {
             size="small"
             bodyStyle={{ padding: 8 }}
           >
-            <img
-              src="/api/tv/stream"
-              alt="TV 实时画面"
-              style={{
-                width: '100%', display: 'block', borderRadius: 4,
-                background: '#000', minHeight: 200
-              }}
-            />
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <img
+                src="/api/tv/stream"
+                alt="TV 实时画面"
+                style={{
+                  flex: 1, minWidth: 0, display: 'block', borderRadius: 4,
+                  background: '#000', minHeight: 200
+                }}
+              />
+              <RemoteControl />
+            </div>
           </Card>
         </Col>
 

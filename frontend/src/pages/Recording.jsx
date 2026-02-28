@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm } from 'antd'
 import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep } from '../api'
+import RemoteControl from '../components/RemoteControl'
 
 const COMMON_KEYS = [
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'SETTING',
@@ -395,12 +396,15 @@ export default function Recording() {
 
       <div style={{ display: 'flex', gap: 16 }}>
         <div style={{ flex: 1 }}>
-          <Card title="实时预览" style={{ marginBottom: 16 }}>
-            <img
-              src="/api/tv/stream"
-              alt="TV 实时画面"
-              style={{ width: '100%', maxHeight: 400, border: '1px solid #d9d9d9', borderRadius: 4, background: '#000' }}
-            />
+          <Card title="实时预览" size="small" style={{ marginBottom: 16 }} bodyStyle={{ padding: 8 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <img
+                src="/api/tv/stream"
+                alt="TV 实时画面"
+                style={{ flex: 1, minWidth: 0, maxHeight: 420, borderRadius: 4, background: '#000', display: 'block' }}
+              />
+              <RemoteControl />
+            </div>
           </Card>
 
           <Card title="操作面板">
