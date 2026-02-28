@@ -324,6 +324,17 @@ class ReplayEngine:
             result["step_index"] = idx
             result["step_type"] = step_type
             result["duration_s"] = round(time.time() - step_start, 1)
+
+            # 附加原始步骤描述信息，供前端展示
+            if step_type == "key_group":
+                result["commands"] = step.get("commands", [])
+                result["interval_ms"] = step.get("interval_ms", 0)
+            elif step_type == "adb_command":
+                result["command"] = step.get("command", "")
+                result["description"] = step.get("description", "")
+            elif step_type in ("ai_navigate", "ai_verify"):
+                result["prompt"] = step.get("prompt", "")
+
             step_results.append(result)
 
             # 如果步骤失败且需要中断

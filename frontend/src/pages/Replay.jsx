@@ -189,9 +189,143 @@ export default function Replay() {
     },
   ]
 
+  // 渲染按键组详情
+  const renderKeyGroupInfo = (step) => {
+    const commands = step.commands || []
+    const intervalMs = step.interval_ms || 0
+    if (commands.length === 0) return null
+
+    const isSingleKey = commands.length === 1
+    const cmd = commands[0] || {}
+
+    if (isSingleKey) {
+      if (cmd.is_long_press) {
+        return (
+          <div style={{ padding: '8px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #d6e4ff', fontSize: 13 }}>
+            <span style={{ fontWeight: 500 }}>长按</span>{' '}
+            <Tag color="blue" style={{ margin: '0 4px' }}>{cmd.key}</Tag>
+            <span style={{ color: '#666' }}>
+              {cmd.duration_ms ? `${(cmd.duration_ms / 1000).toFixed(1)}s` : ''}
+            </span>
+          </div>
+        )
+      }
+      return (
+        <div style={{ padding: '8px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #d6e4ff', fontSize: 13 }}>
+          <span style={{ fontWeight: 500 }}>按键</span>{' '}
+          <Tag color="blue" style={{ margin: '0 4px' }}>{cmd.key}</Tag>
+        </div>
+      )
+    }
+
+    // 多个按键
+    const keyNames = commands.map(c => c.key)
+    // 检查是否所有按键相同（连续短按同一键）
+    const allSame = keyNames.every(k => k === keyNames[0])
+
+    return (
+      <div style={{ padding: '8px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #d6e4ff', fontSize: 13 }}>
+        {allSame ? (
+          <>
+            <span style={{ fontWeight: 500 }}>连续按</span>{' '}
+            <Tag color="blue" style={{ margin: '0 4px' }}>{keyNames[0]}</Tag>
+            <span style={{ color: '#666' }}>× {commands.length} 次</span>
+          </>
+        ) : (
+          <>
+            <span style={{ fontWeight: 500 }}>组合按键</span>{' '}
+            {commands.map((c, i) => (
+              <span key={i}>
+                <Tag color={c.is_long_press ? 'orange' : 'blue'} style={{ margin: '0 2px' }}>
+                  {c.key}{c.is_long_press ? ` (长按${c.duration_ms ? (c.duration_ms/1000).toFixed(1)+'s' : ''})` : ''}
+                </Tag>
+                {i < commands.length - 1 && <span style={{ color: '#ccc', margin: '0 2px' }}>→</span>}
+              </span>
+            ))}
+          </>
+        )}
+        {intervalMs > 0 && (
+          <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>
+            间隔 {intervalMs}ms
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  // 渲染 AI 导航详情（展示每一轮操作）
+  const renderAiNavigateInfo = (step) => {
+    const rounds = step.rounds || []
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {step.prompt && (
+          <div style={{ padding: '8px 12px', background: '#f9f0ff', borderRadius: 6, border: '1px solid #d3adf7', fontSize: 13 }}>
+            <span style={{ fontWeight: 500, color: '#722ed1' }}>指令：</span>{step.prompt}
+          </div>
+        )}
+        {rounds.length > 0 && (
+          <div style={{ padding: '8px 12px', background: '#f6ffed', borderRadius: 6, border: '1px solid #b7eb8f', fontSize: 13 }}>
+            <div style={{ fontWeight: 500, marginBottom: 6, color: '#389e0d' }}>
+              AI 执行过程（共 {rounds.length} 轮）
+            </div>
+            {rounds.map((r, i) => {
+              const parsed = r.parsed || {}
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', borderTop: i > 0 ? '1px solid #e8f5e0' : 'none' }}>
+                  <Tag style={{ margin: 0, minWidth: 44, textAlign: 'center' }}>{`#${r.round || i + 1}`}</Tag>
+                  {parsed.action && parsed.action !== 'none' && (
+                    <Tag color="blue" style={{ margin: 0 }}>{parsed.action}</Tag>
+                  )}
+                  {parsed.done && <Tag color="green" style={{ margin: 0 }}>完成</Tag>}
+                  {parsed.reason && <span style={{ color: '#666', fontSize: 12 }}>{parsed.reason}</span>}
+                  {r.error && <span style={{ color: '#f5222d', fontSize: 12 }}>{r.error}</span>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 渲染 ADB 命令详情
+  const renderAdbCommandInfo = (step) => {
+    return (
+      <div style={{ padding: '8px 12px', background: '#f5f5f5', borderRadius: 6, border: '1px solid #e8e8e8', fontSize: 13 }}>
+        {step.description && <div style={{ fontWeight: 500, marginBottom: 4 }}>{step.description}</div>}
+        <code style={{ color: '#d46b08', fontSize: 12, wordBreak: 'break-all' }}>{step.command}</code>
+        {step.output && <div style={{ marginTop: 4, color: '#666', fontSize: 12, whiteSpace: 'pre-wrap' }}>{step.output}</div>}
+      </div>
+    )
+  }
+
+  // 渲染 AI 校验详情
+  const renderAiVerifyInfo = (step) => {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {step.prompt && (
+          <div style={{ padding: '8px 12px', background: '#f9f0ff', borderRadius: 6, border: '1px solid #d3adf7', fontSize: 13 }}>
+            <span style={{ fontWeight: 500, color: '#722ed1' }}>校验条件：</span>{step.prompt}
+          </div>
+        )}
+        {step.ai_reason && (
+          <div style={{
+            padding: '8px 12px', borderRadius: 6, fontSize: 13,
+            background: step.ai_passed ? '#f6ffed' : '#fff2f0',
+            border: `1px solid ${step.ai_passed ? '#b7eb8f' : '#ffccc7'}`,
+          }}>
+            <span style={{ fontWeight: 500 }}>AI 判断：</span>{step.ai_reason}
+            {step.ai_confidence != null && (
+              <span style={{ marginLeft: 8, color: '#999' }}>置信度: {(step.ai_confidence * 100).toFixed(0)}%</span>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // 详情弹窗中的步骤渲染
   const renderStepDetail = (step, index) => {
-    const cfg = statusConfig[step.status] || {}
     const screenshotUrl = getScreenshotUrl(step.screenshot)
 
     return (
@@ -219,8 +353,8 @@ export default function Replay() {
         </div>
 
         {/* 信息区域 */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Space size="middle" style={{ marginBottom: 8 }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Space size="middle">
             <StatusTag status={step.status} />
             <Tag>{stepTypeLabels[step.step_type] || step.step_type}</Tag>
             {step.duration_s != null && (
@@ -231,23 +365,19 @@ export default function Replay() {
             )}
           </Space>
 
+          {/* 按步骤类型渲染详细信息 */}
+          {step.step_type === 'key_group' && renderKeyGroupInfo(step)}
+          {step.step_type === 'adb_command' && renderAdbCommandInfo(step)}
+          {step.step_type === 'ai_navigate' && renderAiNavigateInfo(step)}
+          {step.step_type === 'ai_verify' && renderAiVerifyInfo(step)}
+
           {step.reason && (
             <div style={{
-              marginTop: 8, padding: '8px 12px', background: step.status === 'failed' ? '#fff2f0' : '#fffbe6',
-              borderRadius: 4, border: `1px solid ${step.status === 'failed' ? '#ffccc7' : '#ffe58f'}`,
-              fontSize: 13, color: '#333', wordBreak: 'break-all'
+              padding: '8px 12px', borderRadius: 6, fontSize: 13, color: '#333', wordBreak: 'break-all',
+              background: step.status === 'failed' ? '#fff2f0' : '#fffbe6',
+              border: `1px solid ${step.status === 'failed' ? '#ffccc7' : '#ffe58f'}`,
             }}>
               {step.reason}
-            </div>
-          )}
-
-          {step.ai_reason && (
-            <div style={{
-              marginTop: 8, padding: '8px 12px', background: '#f6ffed',
-              borderRadius: 4, border: '1px solid #b7eb8f', fontSize: 13
-            }}>
-              AI: {step.ai_reason}
-              {step.ai_confidence != null && <span style={{ marginLeft: 8, color: '#999' }}>置信度: {(step.ai_confidence * 100).toFixed(0)}%</span>}
             </div>
           )}
         </div>
@@ -438,7 +568,28 @@ export default function Replay() {
                   .filter(Boolean)
               }
               items={detailData.steps.map((step, i) => {
-                const cfg = statusConfig[step.status] || {}
+                // 生成步骤摘要文字
+                let stepSummary = ''
+                if (step.step_type === 'key_group') {
+                  const cmds = step.commands || []
+                  if (cmds.length === 1) {
+                    const c = cmds[0] || {}
+                    stepSummary = c.is_long_press
+                      ? `长按 ${c.key} ${c.duration_ms ? (c.duration_ms/1000).toFixed(1)+'s' : ''}`
+                      : c.key
+                  } else if (cmds.length > 1) {
+                    const keys = cmds.map(c => c.key)
+                    const allSame = keys.every(k => k === keys[0])
+                    stepSummary = allSame ? `${keys[0]} ×${cmds.length}` : keys.join(' → ')
+                  }
+                } else if (step.step_type === 'adb_command') {
+                  stepSummary = step.description || step.command || ''
+                } else if (step.step_type === 'ai_navigate') {
+                  stepSummary = step.prompt ? (step.prompt.length > 30 ? step.prompt.slice(0, 30) + '...' : step.prompt) : ''
+                } else if (step.step_type === 'ai_verify') {
+                  stepSummary = step.prompt ? (step.prompt.length > 30 ? step.prompt.slice(0, 30) + '...' : step.prompt) : ''
+                }
+
                 return {
                   key: String(i),
                   label: (
@@ -446,6 +597,7 @@ export default function Replay() {
                       <span style={{ fontWeight: 500 }}>步骤 {i + 1}</span>
                       <StatusTag status={step.status} />
                       <Tag color="blue">{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+                      {stepSummary && <span style={{ color: '#555', fontSize: 12 }}>{stepSummary}</span>}
                       {step.duration_s != null && (
                         <span style={{ color: '#999', fontSize: 12 }}>{step.duration_s.toFixed(1)}s</span>
                       )}
