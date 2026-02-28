@@ -6,7 +6,7 @@
 import json
 import os
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
 
 def create_replay_routes(device_config, data_dir, scripts_repo_path):
@@ -172,5 +172,19 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
                 return jsonify({"success": False, "error": f"读取结果失败: {e}"})
 
         return jsonify({"success": False, "error": "未找到结果文件"}), 404
+
+    @bp.route("/api/tv/replay/screenshot/<case_key>/<timestamp>/<filename>", methods=["GET"])
+    def get_screenshot(case_key, timestamp, filename):
+        """获取回放截图"""
+        # 安全检查：防止路径穿越
+        for part in (case_key, timestamp, filename):
+            if ".." in part or "/" in part or "\\" in part:
+                return jsonify({"success": False, "error": "非法路径"}), 400
+
+        file_path = os.path.join(data_dir, "replay", case_key, timestamp, filename)
+        if not os.path.isfile(file_path):
+            return jsonify({"success": False, "error": "截图不存在"}), 404
+
+        return send_file(file_path, mimetype="image/png")
 
     return bp

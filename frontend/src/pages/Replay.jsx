@@ -1,7 +1,49 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Card, Select, Button, Space, Table, InputNumber, Switch, Progress, Tag, message, Descriptions, Collapse } from 'antd'
-import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
+import {
+  Card, Select, Button, Space, Table, InputNumber, Switch, Progress, Tag,
+  message, Collapse, Image, Row, Col, Statistic, Badge, Timeline, Modal, Empty, Tooltip
+} from 'antd'
+import {
+  PlayCircleOutlined, StopOutlined, CheckCircleOutlined, CloseCircleOutlined,
+  ClockCircleOutlined, EyeOutlined, WarningOutlined, ExclamationCircleOutlined,
+  ReloadOutlined
+} from '@ant-design/icons'
 import { getCases, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult } from '../api'
+
+// 步骤截图 URL：通过后端 API 获取
+const getScreenshotUrl = (screenshotPath) => {
+  if (!screenshotPath) return null
+  // 从绝对路径中提取 case_key/timestamp/filename
+  // 路径格式: .../replay/CASE-KEY/TIMESTAMP/step_N.png
+  const parts = screenshotPath.replace(/\\/g, '/').split('/')
+  const replayIdx = parts.lastIndexOf('replay')
+  if (replayIdx < 0 || replayIdx + 3 >= parts.length) return null
+  const caseKey = parts[replayIdx + 1]
+  const timestamp = parts[replayIdx + 2]
+  const filename = parts.slice(replayIdx + 3).join('/')
+  return `/api/tv/replay/screenshot/${caseKey}/${timestamp}/${filename}`
+}
+
+const statusConfig = {
+  passed: { color: 'success', icon: <CheckCircleOutlined />, text: '通过', tagColor: 'green' },
+  failed: { color: 'error', icon: <CloseCircleOutlined />, text: '失败', tagColor: 'red' },
+  warning: { color: 'warning', icon: <WarningOutlined />, text: '警告', tagColor: 'orange' },
+  aborted: { color: 'default', icon: <ExclamationCircleOutlined />, text: '中止', tagColor: 'default' },
+  error: { color: 'error', icon: <CloseCircleOutlined />, text: '异常', tagColor: 'red' },
+  skipped: { color: 'default', icon: <ClockCircleOutlined />, text: '跳过', tagColor: 'default' },
+}
+
+const stepTypeLabels = {
+  key_group: '按键操作',
+  adb_command: 'ADB 命令',
+  ai_navigate: 'AI 导航',
+  ai_verify: 'AI 验证',
+}
+
+function StatusTag({ status }) {
+  const cfg = statusConfig[status] || { tagColor: 'default', text: status || '-' }
+  return <Tag color={cfg.tagColor} icon={cfg.icon}>{cfg.text}</Tag>
+}
 
 export default function Replay() {
   const [cases, setCases] = useState([])
@@ -11,7 +53,9 @@ export default function Replay() {
   const [replaying, setReplaying] = useState(false)
   const [status, setStatus] = useState(null)
   const [results, setResults] = useState([])
-  const [expandedResult, setExpandedResult] = useState(null)
+  const [detailVisible, setDetailVisible] = useState(false)
+  const [detailData, setDetailData] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const timerRef = useRef(null)
 
   const fetchCases = async () => {
@@ -57,12 +101,15 @@ export default function Replay() {
 
   useEffect(() => {
     if (replaying) {
-      timerRef.current = setInterval(fetchStatus, 2000)
+      timerRef.current = setInterval(() => {
+        fetchStatus()
+        if (selectedCase) fetchResults(selectedCase)
+      }, 2000)
     } else {
       if (timerRef.current) clearInterval(timerRef.current)
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [replaying])
+  }, [replaying, selectedCase])
 
   const handleStart = async () => {
     if (!selectedCase) { message.warning('请先选择用例'); return }
@@ -92,11 +139,15 @@ export default function Replay() {
   }
 
   const handleViewDetail = async (record) => {
+    setDetailLoading(true)
+    setDetailVisible(true)
     try {
       const res = await getReplayResult(selectedCase, record.timestamp || record.time)
-      setExpandedResult(res.data?.data || res.data)
+      setDetailData(res.data?.data || res.data)
     } catch (e) {
       message.error('获取详情失败')
+    } finally {
+      setDetailLoading(false)
     }
   }
 
@@ -107,97 +158,351 @@ export default function Replay() {
   const stepPercent = totalSteps > 0 ? Math.round((currentStep / totalSteps) * 100) : 0
 
   const resultColumns = [
-    { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180, render: (v) => v || '-' },
     {
-      title: '结果', dataIndex: 'result', key: 'result', width: 80,
+      title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 170,
       render: (v) => {
-        const colorMap = { passed: 'green', failed: 'red' }
-        return <Tag color={colorMap[v] || 'default'}>{v || '-'}</Tag>
+        if (!v) return '-'
+        // 格式化 20260227_155903 → 2026-02-27 15:59:03
+        const m = v.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/)
+        return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` : v
       }
     },
-    { title: '时长', dataIndex: 'duration', key: 'duration', width: 100, render: (v) => v ? `${v}s` : '-' },
-    { title: '失败原因', dataIndex: 'error', key: 'error', ellipsis: true, render: (v) => v || '-' },
+    {
+      title: '结果', dataIndex: 'result', key: 'result', width: 100,
+      render: (v) => <StatusTag status={v} />
+    },
+    {
+      title: '步骤', dataIndex: 'total_steps', key: 'total_steps', width: 60,
+      render: (v) => v || '-'
+    },
+    {
+      title: '时长', dataIndex: 'duration_s', key: 'duration_s', width: 90,
+      render: (v) => v ? `${v.toFixed(1)}s` : '-'
+    },
     {
       title: '操作', key: 'action', width: 80,
-      render: (_, record) => <Button type="link" size="small" onClick={() => handleViewDetail(record)}>详情</Button>
+      render: (_, record) => (
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>
+          详情
+        </Button>
+      )
     },
   ]
 
-  return (
-    <div>
-      <h2>回放</h2>
+  // 详情弹窗中的步骤渲染
+  const renderStepDetail = (step, index) => {
+    const cfg = statusConfig[step.status] || {}
+    const screenshotUrl = getScreenshotUrl(step.screenshot)
 
-      <Card style={{ marginBottom: 16 }}>
-        <Space size="middle" wrap>
-          <span style={{ fontWeight: 'bold' }}>选择用例：</span>
-          <Select
-            style={{ width: 300 }}
-            placeholder="请选择要回放的用例"
-            value={selectedCase}
-            onChange={setSelectedCase}
-            disabled={replaying}
-            showSearch
-            optionFilterProp="label"
-            options={cases.map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
-          />
-          <span>重复次数：</span>
-          <InputNumber min={1} max={100} value={repeatCount} onChange={setRepeatCount} disabled={replaying} />
-          <span>失败停止：</span>
-          <Switch checked={stopOnFailure} onChange={setStopOnFailure} disabled={replaying} />
-          {!replaying ? (
-            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStart}>开始回放</Button>
+    return (
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        {/* 截图区域 */}
+        <div style={{ flexShrink: 0 }}>
+          {screenshotUrl ? (
+            <Image
+              src={screenshotUrl}
+              alt={`步骤 ${index + 1} 截图`}
+              width={320}
+              style={{ borderRadius: 4, border: '1px solid #f0f0f0' }}
+              placeholder={<div style={{ width: 320, height: 180, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>加载中...</div>}
+              fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM5OTkiIGZvbnQtc2l6ZT0iMTQiPuaXoOaIquWbvjwvdGV4dD48L3N2Zz4="
+            />
           ) : (
-            <Button danger icon={<StopOutlined />} onClick={handleStop}>停止回放</Button>
+            <div style={{
+              width: 320, height: 180, background: '#fafafa', borderRadius: 4,
+              border: '1px dashed #d9d9d9', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', color: '#bbb'
+            }}>
+              无截图
+            </div>
           )}
-        </Space>
+        </div>
 
+        {/* 信息区域 */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Space size="middle" style={{ marginBottom: 8 }}>
+            <StatusTag status={step.status} />
+            <Tag>{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+            {step.duration_s != null && (
+              <span style={{ color: '#999', fontSize: 13 }}>
+                <ClockCircleOutlined style={{ marginRight: 4 }} />
+                {step.duration_s.toFixed(1)}s
+              </span>
+            )}
+          </Space>
+
+          {step.reason && (
+            <div style={{
+              marginTop: 8, padding: '8px 12px', background: step.status === 'failed' ? '#fff2f0' : '#fffbe6',
+              borderRadius: 4, border: `1px solid ${step.status === 'failed' ? '#ffccc7' : '#ffe58f'}`,
+              fontSize: 13, color: '#333', wordBreak: 'break-all'
+            }}>
+              {step.reason}
+            </div>
+          )}
+
+          {step.ai_reason && (
+            <div style={{
+              marginTop: 8, padding: '8px 12px', background: '#f6ffed',
+              borderRadius: 4, border: '1px solid #b7eb8f', fontSize: 13
+            }}>
+              AI: {step.ai_reason}
+              {step.ai_confidence != null && <span style={{ marginLeft: 8, color: '#999' }}>置信度: {(step.ai_confidence * 100).toFixed(0)}%</span>}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ padding: '0 0 24px' }}>
+      <h2 style={{ marginBottom: 16 }}>回放</h2>
+
+      {/* 控制面板 */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Row gutter={16} align="middle">
+          <Col flex="auto">
+            <Space size="middle" wrap>
+              <Select
+                style={{ width: 320 }}
+                placeholder="选择要回放的用例"
+                value={selectedCase}
+                onChange={setSelectedCase}
+                disabled={replaying}
+                showSearch
+                optionFilterProp="label"
+                options={cases.map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
+                allowClear
+              />
+              <Tooltip title="重复回放次数">
+                <Space size={4}>
+                  <ReloadOutlined style={{ color: '#999' }} />
+                  <InputNumber min={1} max={100} value={repeatCount} onChange={setRepeatCount} disabled={replaying} style={{ width: 70 }} />
+                </Space>
+              </Tooltip>
+              <Tooltip title="遇到失败步骤时停止回放">
+                <Space size={4}>
+                  <span style={{ color: '#999', fontSize: 13 }}>失败停止</span>
+                  <Switch size="small" checked={stopOnFailure} onChange={setStopOnFailure} disabled={replaying} />
+                </Space>
+              </Tooltip>
+            </Space>
+          </Col>
+          <Col>
+            {!replaying ? (
+              <Button type="primary" size="large" icon={<PlayCircleOutlined />} onClick={handleStart} disabled={!selectedCase}>
+                开始回放
+              </Button>
+            ) : (
+              <Button danger size="large" icon={<StopOutlined />} onClick={handleStop}>
+                停止回放
+              </Button>
+            )}
+          </Col>
+        </Row>
+
+        {/* 回放进度 */}
         {replaying && status && (
-          <div style={{ marginTop: 16 }}>
-            <p>轮次：{currentRound} / {totalRounds}</p>
-            <Progress percent={stepPercent} format={() => `${currentStep} / ${totalSteps}`} />
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+            <Row gutter={16} align="middle">
+              <Col>
+                <Badge status="processing" text={
+                  <span style={{ fontSize: 13 }}>
+                    正在回放 · 轮次 <b>{currentRound}</b> / {totalRounds}
+                  </span>
+                } />
+              </Col>
+              <Col flex="auto">
+                <Progress
+                  percent={stepPercent}
+                  format={() => `步骤 ${currentStep} / ${totalSteps}`}
+                  strokeColor={{ '0%': '#108ee9', '100%': '#87d068' }}
+                  size="small"
+                />
+              </Col>
+            </Row>
           </div>
         )}
       </Card>
 
-      <div style={{ display: 'flex', gap: 16 }}>
-        <Card title="实时预览" style={{ flex: 1 }}>
-          <img
-            src="/api/tv/stream"
-            alt="TV 实时画面"
-            style={{ width: '100%', maxHeight: 400, border: '1px solid #d9d9d9', borderRadius: 4, background: '#000' }}
-          />
-        </Card>
-
-        <Card title="回放结果" style={{ flex: 1 }}>
-          <Table
-            columns={resultColumns}
-            dataSource={results}
-            rowKey={(r) => r.timestamp || r.time || Math.random()}
+      {/* 主体内容：实时预览 + 结果列表 */}
+      <Row gutter={16}>
+        <Col span={12}>
+          <Card
+            title="实时预览"
             size="small"
-            pagination={{ pageSize: 10 }}
-          />
-        </Card>
-      </div>
+            bodyStyle={{ padding: 8 }}
+          >
+            <img
+              src="/api/tv/stream"
+              alt="TV 实时画面"
+              style={{
+                width: '100%', display: 'block', borderRadius: 4,
+                background: '#000', minHeight: 200
+              }}
+            />
+          </Card>
+        </Col>
 
-      {expandedResult && (
-        <Card title="回放详情" style={{ marginTop: 16 }}>
-          <Collapse
-            items={(expandedResult.steps || []).map((step, i) => ({
-              key: i,
-              label: `步骤 ${i + 1}: ${step.type || ''} - ${step.result || ''}`,
-              children: (
-                <Descriptions column={1} size="small" bordered>
-                  {Object.entries(step).map(([k, v]) => (
-                    <Descriptions.Item key={k} label={k}>
-                      {typeof v === 'object' ? <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(v, null, 2)}</pre> : String(v ?? '')}
-                    </Descriptions.Item>
-                  ))}
-                </Descriptions>
-              )
-            }))}
-          />
-        </Card>
-      )}
+        <Col span={12}>
+          <Card
+            title={<Space>回放结果{results.length > 0 && <Tag>{results.length} 条</Tag>}</Space>}
+            size="small"
+            bodyStyle={{ padding: 0 }}
+          >
+            {results.length > 0 ? (
+              <Table
+                columns={resultColumns}
+                dataSource={results}
+                rowKey={(r) => r.timestamp || r.time || Math.random()}
+                size="small"
+                pagination={{ pageSize: 8, size: 'small' }}
+                style={{ margin: 0 }}
+              />
+            ) : (
+              <Empty description="暂无回放结果" style={{ padding: '40px 0' }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 详情弹窗 */}
+      <Modal
+        title={
+          detailData ? (
+            <Space>
+              <span>回放详情</span>
+              <StatusTag status={detailData.result} />
+              {detailData.duration_s != null && (
+                <span style={{ color: '#999', fontSize: 13, fontWeight: 'normal' }}>
+                  总耗时 {detailData.duration_s.toFixed(1)}s
+                </span>
+              )}
+            </Space>
+          ) : '回放详情'
+        }
+        open={detailVisible}
+        onCancel={() => { setDetailVisible(false); setDetailData(null) }}
+        footer={null}
+        width={860}
+        loading={detailLoading}
+        destroyOnClose
+      >
+        {detailData && detailData.steps && (
+          <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
+            {/* 概要统计 */}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic title="总步骤" value={detailData.total_steps || detailData.steps.length} />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="通过"
+                    value={detailData.steps.filter(s => s.status === 'passed').length}
+                    valueStyle={{ color: '#3f8600' }}
+                    prefix={<CheckCircleOutlined />}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="失败"
+                    value={detailData.steps.filter(s => s.status === 'failed' || s.status === 'error').length}
+                    valueStyle={{ color: '#cf1322' }}
+                    prefix={<CloseCircleOutlined />}
+                  />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="总耗时"
+                    value={detailData.duration_s ? `${detailData.duration_s.toFixed(1)}s` : '-'}
+                    prefix={<ClockCircleOutlined />}
+                  />
+                </Card>
+              </Col>
+            </Row>
+
+            {/* 步骤列表 */}
+            <Collapse
+              defaultActiveKey={
+                // 默认展开失败的步骤
+                detailData.steps
+                  .map((s, i) => (s.status === 'failed' || s.status === 'error') ? String(i) : null)
+                  .filter(Boolean)
+              }
+              items={detailData.steps.map((step, i) => {
+                const cfg = statusConfig[step.status] || {}
+                return {
+                  key: String(i),
+                  label: (
+                    <Space>
+                      <span style={{ fontWeight: 500 }}>步骤 {i + 1}</span>
+                      <StatusTag status={step.status} />
+                      <Tag color="blue">{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+                      {step.duration_s != null && (
+                        <span style={{ color: '#999', fontSize: 12 }}>{step.duration_s.toFixed(1)}s</span>
+                      )}
+                    </Space>
+                  ),
+                  children: renderStepDetail(step, i),
+                }
+              })}
+            />
+          </div>
+        )}
+
+        {/* Summary 模式（多次重复） */}
+        {detailData && detailData.runs && !detailData.steps && (
+          <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic title="总轮次" value={detailData.repeat || detailData.runs.length} />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic title="通过" value={detailData.passed || 0} valueStyle={{ color: '#3f8600' }} prefix={<CheckCircleOutlined />} />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic title="失败" value={detailData.failed || 0} valueStyle={{ color: '#cf1322' }} prefix={<CloseCircleOutlined />} />
+                </Card>
+              </Col>
+              <Col span={6}>
+                <Card size="small">
+                  <Statistic
+                    title="通过率"
+                    value={detailData.pass_rate != null ? `${(detailData.pass_rate * 100).toFixed(0)}%` : '-'}
+                    valueStyle={{ color: (detailData.pass_rate || 0) >= 0.8 ? '#3f8600' : '#cf1322' }}
+                  />
+                </Card>
+              </Col>
+            </Row>
+
+            <Timeline
+              items={(detailData.runs || []).map((run, i) => ({
+                color: run.result === 'passed' ? 'green' : run.result === 'failed' ? 'red' : 'gray',
+                children: (
+                  <Space>
+                    <span>第 {run.run || i + 1} 轮</span>
+                    <StatusTag status={run.result} />
+                    {run.duration_s != null && <span style={{ color: '#999' }}>{run.duration_s.toFixed(1)}s</span>}
+                  </Space>
+                ),
+              }))}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
