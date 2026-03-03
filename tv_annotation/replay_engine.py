@@ -24,7 +24,7 @@ from tv_annotation.key_mappings import ADB_KEYCODE_MAP
 logger = logging.getLogger(__name__)
 
 # Activity 稳定等待参数
-_ACTIVITY_POLL_INTERVAL = 0.3   # 轮询间隔（秒）
+_ACTIVITY_POLL_INTERVAL = 0.05  # 轮询间隔（秒），ADB 本身耗时 200-600ms，无需额外长等待
 _ACTIVITY_POLL_TIMEOUT = 5.0    # 最大等待时间（秒）
 
 
@@ -400,7 +400,7 @@ class ReplayEngine:
                 }
 
         # 2. 执行按键
-        for cmd in commands:
+        for cmd_idx, cmd in enumerate(commands):
             if self._stop_requested:
                 return {"status": "aborted", "reason": "用户手动停止"}
 
@@ -414,7 +414,9 @@ class ReplayEngine:
             else:
                 send_keyevent(self._device_serial, adb_keycode)
 
-            time.sleep(interval_s)
+            # 只在非最后一个按键后等待间隔
+            if cmd_idx < len(commands) - 1:
+                time.sleep(interval_s)
 
         # 3. 等待画面稳定（Activity 轮询）
         self._wait_activity_stable()
@@ -617,16 +619,19 @@ class ReplayEngine:
         Returns:
             bool: 是否成功
         """
+        t0 = time.time()
         try:
-            return self._capture_card.take_screenshot(filepath, self._device_serial)
+            ok = self._capture_card.take_screenshot(filepath, self._device_serial)
+            logger.info(f"截图耗时: {time.time() - t0:.2f}s, 结果: {ok}")
+            return ok
         except Exception as e:
-            logger.warning(f"截图失败: {e}")
+            logger.warning(f"截图失败: {e} (耗时 {time.time() - t0:.2f}s)")
             return False
 
     def _wait_activity_stable(self):
         """等待 Activity 稳定
 
-        每 300ms 轮询一次，连续两次相同则认为稳定，最多等待 5s。
+        连续两次相同则认为稳定，最多等待 5s。
         """
         prev_activity = ""
         start = time.time()
