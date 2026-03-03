@@ -39,6 +39,10 @@ export const updateSavedStep = (caseKey, index, type, params) => api.post(`/api/
 // 遥控器
 export const sendKey = (key) => api.post('/api/tv/recording/send_key', { key })
 
+// 快速回放（录制页面用）
+export const quickReplay = (caseKey) => api.post('/api/tv/recording/quick_replay', { case_key: caseKey })
+export const stopQuickReplay = () => api.post('/api/tv/recording/quick_replay/stop')
+
 // 回放
 export const startReplay = (data) => api.post('/api/tv/replay/start', data)
 export const stopReplay = () => api.post('/api/tv/replay/stop')

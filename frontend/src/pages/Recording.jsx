@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm, Collapse } from 'antd'
-import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined, WarningOutlined } from '@ant-design/icons'
-import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep } from '../api'
+import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined, WarningOutlined, ThunderboltOutlined, LoadingOutlined, CheckCircleOutlined, ClockCircleOutlined, StopOutlined } from '@ant-design/icons'
+import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep, quickReplay, stopQuickReplay, getReplayStatus } from '../api'
 
 const COMMON_KEYS = [
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'SETTING',
@@ -23,6 +23,11 @@ export default function Recording() {
   const [aiPrompt, setAiPrompt] = useState('')
   const timerRef = useRef(null)
   const [savedSteps, setSavedSteps] = useState([])
+
+  // 快速回放状态
+  const [quickReplaying, setQuickReplaying] = useState(false)
+  const [replayStatus, setReplayStatus] = useState(null)
+  const replayTimerRef = useRef(null)
 
   // 插入/编辑 Modal 状态
   const [modalVisible, setModalVisible] = useState(false)
@@ -91,6 +96,53 @@ export default function Recording() {
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [recording])
+
+  // 快速回放轮询
+  useEffect(() => {
+    if (quickReplaying) {
+      const poll = async () => {
+        try {
+          const res = await getReplayStatus()
+          const data = res.data?.data
+          setReplayStatus(data)
+          if (data && !data.is_replaying) {
+            setQuickReplaying(false)
+            setReplayStatus(null)
+            message.success('快速回放完成')
+          }
+        } catch (e) { /* 静默 */ }
+      }
+      poll()
+      replayTimerRef.current = setInterval(poll, 800)
+    } else {
+      if (replayTimerRef.current) clearInterval(replayTimerRef.current)
+    }
+    return () => { if (replayTimerRef.current) clearInterval(replayTimerRef.current) }
+  }, [quickReplaying])
+
+  const handleQuickReplay = async () => {
+    if (!selectedCase) { message.warning('请先选择用例'); return }
+    try {
+      const res = await quickReplay(selectedCase)
+      if (res.data?.success) {
+        setQuickReplaying(true)
+        message.success('快速回放已启动')
+      } else {
+        message.error(res.data?.message || res.data?.error || '启动失败')
+      }
+    } catch (e) {
+      message.error('快速回放失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
+  const handleStopQuickReplay = async () => {
+    try {
+      await stopQuickReplay()
+      message.info('正在停止快速回放...')
+    } catch (e) {
+      message.error('停止失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
 
   const handleStart = async () => {
     if (!selectedCase) {
@@ -449,29 +501,127 @@ export default function Recording() {
             placeholder="请选择要录制的用例"
             value={selectedCase}
             onChange={handleCaseChange}
-            disabled={recording}
+            disabled={recording || quickReplaying}
             showSearch
             optionFilterProp="label"
             options={cases.map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
           />
-          {!recording ? (
-            <Button type="primary" icon={<PlayCircleOutlined />}
-              onClick={(e) => { e.currentTarget.blur(); handleStart(); }}
-              onKeyDown={(e) => e.preventDefault()}
-            >开始录制</Button>
-          ) : (
+          {!recording && !quickReplaying ? (
+            <>
+              <Button type="primary" icon={<PlayCircleOutlined />}
+                onClick={(e) => { e.currentTarget.blur(); handleStart(); }}
+                onKeyDown={(e) => e.preventDefault()}
+              >开始录制</Button>
+              <Button icon={<ThunderboltOutlined />}
+                onClick={(e) => { e.currentTarget.blur(); handleQuickReplay(); }}
+                onKeyDown={(e) => e.preventDefault()}
+                disabled={!selectedCase || savedSteps.length === 0}
+              >快速回放</Button>
+            </>
+          ) : recording ? (
             <Button danger icon={<PauseOutlined />}
               onClick={(e) => { e.currentTarget.blur(); handleStop(); }}
               onKeyDown={(e) => e.preventDefault()}
             >停止录制</Button>
+          ) : (
+            <Button danger icon={<StopOutlined />}
+              onClick={(e) => { e.currentTarget.blur(); handleStopQuickReplay(); }}
+              onKeyDown={(e) => e.preventDefault()}
+            >停止回放</Button>
           )}
           {recording && (
             <Tag color="processing" style={{ marginLeft: 8 }}>录制中 — 已录制 {displayItems.length} 步</Tag>
           )}
+          {quickReplaying && replayStatus && (
+            <Tag color="blue" style={{ marginLeft: 8 }}>
+              <LoadingOutlined style={{ marginRight: 4 }} />
+              回放中 {replayStatus.current_step}/{replayStatus.total_steps} 步
+            </Tag>
+          )}
         </Space>
       </Card>
 
-      {recording ? (
+      {quickReplaying ? (
+        /* ===== 快速回放中：三栏布局 ===== */
+        <div style={{ display: 'flex', gap: 12, height: 'calc(100vh - 130px)' }}>
+          {/* 左栏：用例详情 */}
+          <div style={{
+            width: 320, flexShrink: 0,
+            overflow: 'auto', padding: '12px',
+            background: '#fff', borderRadius: 8, border: '1px solid #f0f0f0',
+          }}>
+            {caseDetailContent || <span style={{ color: '#999' }}>未选择用例</span>}
+          </div>
+
+          {/* 中栏：实时预览 */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Card title="实时预览" size="small" bodyStyle={{ padding: 8 }}>
+              <img
+                src="/api/tv/stream"
+                alt="TV 实时画面"
+                style={{ width: '100%', display: 'block', borderRadius: 4, background: '#000' }}
+              />
+            </Card>
+          </div>
+
+          {/* 右栏：步骤进度 */}
+          <div style={{
+            width: 350, flexShrink: 0,
+            overflow: 'auto', padding: '12px',
+            background: '#fff', borderRadius: 8, border: '1px solid #f0f0f0',
+          }}>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+              步骤进度 {replayStatus ? `${replayStatus.current_step}/${replayStatus.total_steps}` : ''}
+            </div>
+            {(replayStatus?.steps_overview || []).map((step, idx) => {
+              const stepResult = (replayStatus?.step_results || [])[idx]
+              const currentStep = replayStatus?.current_step || 0
+              const isCompleted = stepResult != null
+              const isRunning = !isCompleted && idx + 1 === currentStep
+              const isPending = !isCompleted && !isRunning
+
+              return (
+                <div key={idx} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 8,
+                  padding: '8px 10px', marginBottom: 4,
+                  background: isRunning ? '#e6f7ff' : isCompleted ? '#f6ffed' : '#fafafa',
+                  border: `1px solid ${isRunning ? '#91d5ff' : isCompleted ? '#b7eb8f' : '#f0f0f0'}`,
+                  borderRadius: 6, fontSize: 13, transition: 'all 0.3s',
+                }}>
+                  <div style={{ flexShrink: 0, marginTop: 2 }}>
+                    {isCompleted ? (
+                      <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 16 }} />
+                    ) : isRunning ? (
+                      <LoadingOutlined style={{ color: '#1890ff', fontSize: 16 }} />
+                    ) : (
+                      <ClockCircleOutlined style={{ color: '#d9d9d9', fontSize: 16 }} />
+                    )}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Tag color={
+                        step.type === 'key_group' ? 'blue' :
+                        step.type === 'adb_command' ? 'orange' :
+                        step.type === 'ai_navigate' ? 'purple' :
+                        step.type === 'ai_verify' ? 'green' : 'default'
+                      } style={{ margin: 0 }}>
+                        {step.type === 'key_group' ? '按键' :
+                         step.type === 'adb_command' ? 'ADB' :
+                         step.type === 'ai_navigate' ? 'AI导航' :
+                         step.type === 'ai_verify' ? 'AI验证' : step.type}
+                      </Tag>
+                      <span style={{ fontWeight: 500 }}>#{idx + 1}</span>
+                    </div>
+                    <div style={{ marginTop: 4, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {step.summary}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : recording ? (
         /* ===== 录制中：三栏布局 ===== */
         <div style={{ display: 'flex', gap: 12, height: 'calc(100vh - 130px)' }}>
           {/* 左栏：用例详情 */}

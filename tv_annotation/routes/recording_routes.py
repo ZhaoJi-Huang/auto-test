@@ -435,6 +435,49 @@ def create_recording_routes(device_config, scripts_repo_path):
             return jsonify({"success": False, "error": msg})
 
     # ------------------------------------------------------------------
+    # POST /api/tv/recording/quick_replay — 快速回放
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/recording/quick_replay", methods=["POST"])
+    def quick_replay():
+        """启动快速回放（无 Activity 校验、无截图、无 AI 验证）"""
+        data = request.get_json()
+        if not data or not data.get("case_key"):
+            return jsonify({"success": False, "error": "缺少 case_key 参数"}), 400
+
+        case_key = data["case_key"].strip()
+        if not case_key:
+            return jsonify({"success": False, "error": "case_key 不能为空"}), 400
+
+        device_serial = device_config.get("tv_ip", "")
+        if not device_serial:
+            return jsonify({"success": False, "error": "未配置设备 IP，请先在设置中配置"}), 400
+
+        from tv_annotation.routes.replay_routes import get_shared_replay_engine
+        engine = get_shared_replay_engine()
+        if engine is None:
+            return jsonify({"success": False, "error": "回放引擎未初始化，请先检查设备配置"})
+
+        # 更新设备序列号
+        engine._device_serial = device_serial
+
+        ok, msg = engine.quick_replay(case_key)
+        return jsonify({"success": ok, "message": msg})
+
+    # ------------------------------------------------------------------
+    # POST /api/tv/recording/quick_replay/stop — 停止快速回放
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/recording/quick_replay/stop", methods=["POST"])
+    def stop_quick_replay():
+        """停止快速回放"""
+        from tv_annotation.routes.replay_routes import get_shared_replay_engine
+        engine = get_shared_replay_engine()
+        if engine is None:
+            return jsonify({"success": False, "error": "回放引擎未初始化"})
+
+        ok, msg = engine.stop()
+        return jsonify({"success": ok, "message": msg})
+
+    # ------------------------------------------------------------------
     # 旧前端兼容路由
     # ------------------------------------------------------------------
     @bp.route("/api/tv/recording/send_key", methods=["POST"])

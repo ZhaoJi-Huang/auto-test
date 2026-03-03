@@ -51,6 +51,7 @@ class ReplayEngine:
         # 回放状态
         self._is_replaying = False
         self._stop_requested = False
+        self._quick_mode = False
         self._case_key = None
         self._current_step = 0
         self._total_steps = 0
@@ -76,6 +77,7 @@ class ReplayEngine:
         with self._lock:
             return {
                 "is_replaying": self._is_replaying,
+                "quick_mode": self._quick_mode,
                 "case_key": self._case_key,
                 "current_step": self._current_step,
                 "total_steps": self._total_steps,
@@ -151,6 +153,61 @@ class ReplayEngine:
 
         return True, "回放已启动"
 
+    def quick_replay(self, case_key):
+        """启动快速回放（无 Activity 校验、无截图、无 AI 验证、固定 1s 间隔）
+
+        Args:
+            case_key: 用例标识
+
+        Returns:
+            (bool, str): (是否成功启动, 消息)
+        """
+        if self._is_replaying:
+            return False, "回放已在进行中"
+
+        # 加载步骤文件
+        steps_file = os.path.join(self._scripts_repo_path, case_key, "steps.json")
+        if not os.path.isfile(steps_file):
+            return False, f"未找到步骤文件: {steps_file}"
+
+        try:
+            with open(steps_file, "r", encoding="utf-8") as f:
+                steps = json.load(f)
+        except Exception as e:
+            return False, f"读取步骤文件失败: {e}"
+
+        if not steps:
+            return False, "步骤文件为空"
+
+        # 检查设备
+        ok, msg = check_adb_device(self._device_serial)
+        if not ok:
+            return False, f"设备检查失败: {msg}"
+
+        # 初始化状态
+        with self._lock:
+            self._is_replaying = True
+            self._stop_requested = False
+            self._quick_mode = True
+            self._case_key = case_key
+            self._total_steps = len(steps)
+            self._current_step = 0
+            self._total_runs = 1
+            self._current_run = 0
+            self._step_results = []
+            self._steps_overview = self._build_steps_overview(steps)
+
+        # 后台线程执行（无结果目录）
+        self._replay_thread = threading.Thread(
+            target=self._replay_worker,
+            args=(case_key, steps, 1, False, None, None),
+            name="quick-replay-worker",
+            daemon=True,
+        )
+        self._replay_thread.start()
+
+        return True, "快速回放已启动"
+
     def stop(self):
         """停止回放"""
         if not self._is_replaying:
@@ -167,14 +224,16 @@ class ReplayEngine:
         runs = []
         started_at = datetime.now().isoformat()
         video_recorder = None
+        quick = self._quick_mode
 
         try:
-            # 延迟导入视频录制器，避免循环引用
-            try:
-                from tv_annotation.video_recorder import VideoRecorder
-                video_recorder = VideoRecorder(self._capture_card)
-            except ImportError:
-                logger.warning("视频录制模块不可用，跳过视频录制")
+            # 快速回放不录视频
+            if not quick:
+                try:
+                    from tv_annotation.video_recorder import VideoRecorder
+                    video_recorder = VideoRecorder(self._capture_card)
+                except ImportError:
+                    logger.warning("视频录制模块不可用，跳过视频录制")
 
             for run_idx in range(1, repeat + 1):
                 if self._stop_requested:
@@ -184,46 +243,49 @@ class ReplayEngine:
                     self._current_run = run_idx
                     self._current_step = 0
 
-                logger.info(f"开始回放: {case_key} 第 {run_idx}/{repeat} 次")
+                logger.info(f"{'快速' if quick else ''}回放: {case_key} 第 {run_idx}/{repeat} 次")
 
-                # 创建本次运行目录
-                if repeat > 1:
-                    run_dir = os.path.join(result_dir, f"run_{run_idx}")
-                else:
-                    run_dir = result_dir
-                os.makedirs(run_dir, exist_ok=True)
+                run_dir = None
+                if not quick:
+                    # 创建本次运行目录
+                    if repeat > 1:
+                        run_dir = os.path.join(result_dir, f"run_{run_idx}")
+                    else:
+                        run_dir = result_dir
+                    os.makedirs(run_dir, exist_ok=True)
 
-                # 开始视频录制
-                video_path = os.path.join(run_dir, "replay.mp4")
-                if video_recorder:
-                    try:
-                        video_recorder.start(video_path)
-                    except Exception as e:
-                        logger.warning(f"视频录制启动失败: {e}")
+                    # 开始视频录制
+                    video_path = os.path.join(run_dir, "replay.mp4")
+                    if video_recorder:
+                        try:
+                            video_recorder.start(video_path)
+                        except Exception as e:
+                            logger.warning(f"视频录制启动失败: {e}")
 
                 # 执行回放
                 run_result = self._execute_single_run(steps, run_dir)
 
-                # 停止视频录制
-                if video_recorder and video_recorder.is_recording:
-                    try:
-                        video_recorder.stop()
-                    except Exception as e:
-                        logger.warning(f"视频录制停止失败: {e}")
+                if not quick:
+                    # 停止视频录制
+                    if video_recorder and video_recorder.is_recording:
+                        try:
+                            video_recorder.stop()
+                        except Exception as e:
+                            logger.warning(f"视频录制停止失败: {e}")
 
-                # 保存本次结果
-                result_data = {
-                    "jira_key": case_key,
-                    "replay_at": datetime.now().isoformat(),
-                    "duration_s": run_result["duration_s"],
-                    "result": run_result["result"],
-                    "total_steps": len(steps),
-                    "failed_step": run_result.get("failed_step"),
-                    "failed_reason": run_result.get("failed_reason"),
-                    "operator": platform.node(),
-                    "steps": run_result["steps"],
-                }
-                self._save_json(os.path.join(run_dir, "result.json"), result_data)
+                    # 保存本次结果
+                    result_data = {
+                        "jira_key": case_key,
+                        "replay_at": datetime.now().isoformat(),
+                        "duration_s": run_result["duration_s"],
+                        "result": run_result["result"],
+                        "total_steps": len(steps),
+                        "failed_step": run_result.get("failed_step"),
+                        "failed_reason": run_result.get("failed_reason"),
+                        "operator": platform.node(),
+                        "steps": run_result["steps"],
+                    }
+                    self._save_json(os.path.join(run_dir, "result.json"), result_data)
 
                 runs.append({
                     "run": run_idx,
@@ -236,8 +298,8 @@ class ReplayEngine:
                     logger.info(f"第 {run_idx} 次回放失败，stop_on_failure=True，停止后续回放")
                     break
 
-            # 保存汇总（多次重复时）
-            if repeat > 1:
+            # 保存汇总（多次重复时，快速回放不保存）
+            if not quick and repeat > 1:
                 finished_at = datetime.now().isoformat()
                 passed = sum(1 for r in runs if r["result"] == "passed")
                 failed = sum(1 for r in runs if r["result"] == "failed")
@@ -271,6 +333,7 @@ class ReplayEngine:
             with self._lock:
                 self._is_replaying = False
                 self._stop_requested = False
+                self._quick_mode = False
             logger.info(f"回放结束: {case_key}")
 
     def _execute_single_run(self, steps, run_dir):
@@ -379,12 +442,33 @@ class ReplayEngine:
         2. 执行按键组（按 interval_ms 间隔）
         3. 等待画面稳定
         4. 获取 Activity，与录制时 after_activity 对比
+
+        快速回放模式：跳过 Activity 校验和截图，仅发送按键 + 1s 等待
         """
-        expected_before = step.get("before_activity", "")
-        expected_after = step.get("after_activity", "")
         commands = step.get("commands", [])
         interval_ms = step.get("interval_ms", 200)
         interval_s = max(interval_ms / 1000.0, 0.1)
+
+        if self._quick_mode:
+            # 快速回放：仅执行按键 + 固定 1s 等待
+            for cmd_idx, cmd in enumerate(commands):
+                if self._stop_requested:
+                    return {"status": "aborted", "reason": "用户手动停止"}
+                is_long_press = cmd.get("is_long_press", False)
+                duration_ms = cmd.get("duration_ms", 0)
+                key_name = cmd.get("key", "")
+                adb_keycode = ADB_KEYCODE_MAP.get(key_name, cmd.get("adb_command", "").split()[-1] if cmd.get("adb_command") else "")
+                if is_long_press and duration_ms > 0:
+                    self._send_long_press(adb_keycode, duration_ms)
+                else:
+                    send_keyevent(self._device_serial, adb_keycode)
+                if cmd_idx < len(commands) - 1:
+                    time.sleep(interval_s)
+            time.sleep(1.0)
+            return {"status": "passed"}
+
+        expected_before = step.get("before_activity", "")
+        expected_after = step.get("after_activity", "")
 
         # 1. 校验 before_activity
         if expected_before:
@@ -465,13 +549,29 @@ class ReplayEngine:
         """执行 ADB 命令步骤
 
         流程与 key_group 类似：校验 before_activity → 执行 → 等待稳定 → 校验 after_activity
+        快速回放模式：跳过 Activity 校验和截图，仅执行命令 + 1s 等待
         """
-        expected_before = step.get("before_activity", "")
-        expected_after = step.get("after_activity", "")
         command = step.get("command", "")
 
         if not command:
             return {"status": "skipped", "reason": "命令为空"}
+
+        if self._quick_mode:
+            # 快速回放：仅执行命令 + 等待
+            try:
+                result = run_adb(
+                    ["shell"] + command.split(),
+                    device_serial=self._device_serial,
+                    timeout=30,
+                )
+                output = result.stdout.decode("utf-8", errors="ignore").strip()
+            except Exception as e:
+                return {"status": "failed", "reason": f"ADB 命令执行失败: {e}"}
+            time.sleep(1.0)
+            return {"status": "passed", "output": output}
+
+        expected_before = step.get("before_activity", "")
+        expected_after = step.get("after_activity", "")
 
         # 1. 校验 before_activity
         if expected_before:
@@ -556,6 +656,9 @@ class ReplayEngine:
 
     def _execute_ai_verify(self, step, step_idx, run_dir):
         """执行 AI 校验步骤（失败不中断回放）"""
+        if self._quick_mode:
+            return {"status": "skipped", "reason": "快速回放跳过 AI 验证"}
+
         prompt = step.get("prompt", "")
         if not prompt:
             return {"status": "skipped", "reason": "AI 校验 prompt 为空"}

@@ -8,6 +8,26 @@ import os
 
 from flask import Blueprint, jsonify, request, send_file
 
+# 模块级共享引擎实例（供 recording_routes 快速回放复用）
+_shared_engine = {"instance": None, "device_config": None, "data_dir": None, "scripts_repo_path": None}
+
+
+def get_shared_replay_engine():
+    """获取共享回放引擎实例（供其他模块调用）"""
+    cfg = _shared_engine
+    if cfg["instance"] is None and cfg["device_config"] is not None:
+        tv_ip = cfg["device_config"].get("tv_ip", "")
+        if tv_ip:
+            from tv_annotation.capture_card import capture_card
+            from tv_annotation.replay_engine import ReplayEngine
+            cfg["instance"] = ReplayEngine(
+                device_serial=tv_ip,
+                data_dir=cfg["data_dir"],
+                scripts_repo_path=cfg["scripts_repo_path"],
+                capture_card=capture_card,
+            )
+    return cfg["instance"]
+
 
 def create_replay_routes(device_config, data_dir, scripts_repo_path):
     """创建回放路由蓝图
@@ -22,26 +42,14 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
     """
     bp = Blueprint("tv_replay", __name__)
 
-    # 回放引擎实例（延迟初始化）
-    _engine = {"instance": None}
+    # 初始化共享引擎配置
+    _shared_engine["device_config"] = device_config
+    _shared_engine["data_dir"] = data_dir
+    _shared_engine["scripts_repo_path"] = scripts_repo_path
 
     def _get_engine():
-        """获取或创建回放引擎实例"""
-        if _engine["instance"] is None:
-            tv_ip = device_config.get("tv_ip", "")
-            if not tv_ip:
-                return None
-
-            from tv_annotation.capture_card import capture_card
-            from tv_annotation.replay_engine import ReplayEngine
-
-            _engine["instance"] = ReplayEngine(
-                device_serial=tv_ip,
-                data_dir=data_dir,
-                scripts_repo_path=scripts_repo_path,
-                capture_card=capture_card,
-            )
-        return _engine["instance"]
+        """获取或创建回放引擎实例（使用共享实例）"""
+        return get_shared_replay_engine()
 
     @bp.route("/api/tv/replay/start", methods=["POST"])
     def start_replay():
