@@ -122,29 +122,16 @@ def _parse_json_response(text):
     Raises:
         ValueError: 解析失败时抛出
     """
-    # 尝试直接解析
+    # 用正则提取第一个 {...} 块，兼容任何包裹格式（纯文本、markdown、双重序列化等）
     text = text.strip()
-    try:
-        parsed = json.loads(text)
-        # 大模型可能返回被双重序列化的字符串，如 '"{\\"action\\":\\"UP\\"}"'
-        if isinstance(parsed, str):
-            parsed = json.loads(parsed)
-        return parsed
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    # 尝试从 markdown 代码块中提取
-    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    match = re.search(r"\{[^{}]*\}", text)
     if match:
         try:
-            parsed = json.loads(match.group(1).strip())
-            if isinstance(parsed, str):
-                parsed = json.loads(parsed)
-            return parsed
-        except (json.JSONDecodeError, TypeError):
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
             pass
 
-    # 尝试提取第一个 {...} 块
+    # 兜底：支持嵌套 {} 的复杂 JSON
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
