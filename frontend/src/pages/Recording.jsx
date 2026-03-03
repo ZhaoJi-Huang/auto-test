@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm } from 'antd'
-import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm, Collapse } from 'antd'
+import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined, WarningOutlined } from '@ant-design/icons'
 import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep } from '../api'
 
 const COMMON_KEYS = [
@@ -311,11 +311,130 @@ export default function Recording() {
     },
   ]
 
+  // 用例详情面板（录制时作为左侧栏，非录制时作为独立卡片）
+  const caseDetailContent = caseDetail ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* 标题 */}
+      <div style={{ fontWeight: 600, fontSize: 14 }}>
+        {caseDetail.key} {caseDetail.name || caseDetail.summary || ''}
+      </div>
+
+      {/* 前置条件 */}
+      {caseDetail.precondition && (
+        <div style={{
+          padding: '8px 12px', background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6,
+        }}>
+          <div style={{ fontWeight: 500, fontSize: 12, color: '#ad6800', marginBottom: 4 }}>
+            <WarningOutlined style={{ marginRight: 4 }} />前置条件
+          </div>
+          <div style={{ fontSize: 13, color: '#333', whiteSpace: 'pre-wrap' }}>
+            {caseDetail.precondition}
+          </div>
+        </div>
+      )}
+
+      {/* 描述 */}
+      {caseDetail.description && (
+        <div style={{ padding: '8px 12px', background: '#fafafa', borderRadius: 6, border: '1px solid #f0f0f0' }}>
+          <div style={{ fontWeight: 500, fontSize: 12, color: '#666', marginBottom: 4 }}>描述</div>
+          <div style={{ fontSize: 13, color: '#333', whiteSpace: 'pre-wrap' }}>{caseDetail.description}</div>
+        </div>
+      )}
+
+      {/* 测试步骤 */}
+      {caseDetail.test_steps?.length > 0 && (
+        <div>
+          <div style={{ fontWeight: 500, fontSize: 12, color: '#666', marginBottom: 4 }}>测试步骤</div>
+          {caseDetail.test_steps.map((ts, i) => (
+            <div key={i} style={{
+              padding: '8px 10px', marginBottom: 4,
+              background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, fontSize: 13,
+            }}>
+              <div style={{ color: '#333', whiteSpace: 'pre-wrap' }}>
+                <Tag style={{ marginRight: 6 }}>{ts.sequenceNumber || i + 1}</Tag>{ts.step}
+              </div>
+              {ts.expectedResult && (
+                <div style={{ marginTop: 4, padding: '4px 8px', background: '#f6ffed', borderRadius: 4, border: '1px solid #d9f7be', fontSize: 12 }}>
+                  <span style={{ color: '#389e0d', fontWeight: 500 }}>期望：</span>
+                  <span style={{ color: '#555', whiteSpace: 'pre-wrap' }}>{ts.expectedResult}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(!caseDetail.test_steps || caseDetail.test_steps.length === 0) && !caseDetail.description && !caseDetail.precondition && (
+        <span style={{ color: '#999', fontSize: 13 }}>该用例无详细步骤信息</span>
+      )}
+    </div>
+  ) : null
+
+  // 操作面板内容
+  const operationPanel = (
+    <Collapse
+      size="small"
+      items={[{
+        key: 'ops',
+        label: '插入 ADB / AI 指令',
+        children: (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 500, fontSize: 12, color: '#666', marginBottom: 6 }}>ADB 命令</div>
+              <Space size={4} wrap>
+                <Input placeholder="ADB 命令" value={adbCommand} onChange={e => setAdbCommand(e.target.value)} style={{ width: 200 }} disabled={!recording} size="small" />
+                <Input placeholder="描述" value={adbDesc} onChange={e => setAdbDesc(e.target.value)} style={{ width: 120 }} disabled={!recording} size="small" />
+                <Button size="small" icon={<SendOutlined />} onClick={handleInsertAdb} disabled={!recording}>插入</Button>
+              </Space>
+            </div>
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 12, color: '#666', marginBottom: 6 }}>AI 指令</div>
+              <Space size={4} wrap>
+                <Radio.Group value={aiType} onChange={e => setAiType(e.target.value)} disabled={!recording} size="small">
+                  <Radio.Button value="ai_navigate">导航</Radio.Button>
+                  <Radio.Button value="ai_verify">验证</Radio.Button>
+                </Radio.Group>
+                <Input.TextArea placeholder="AI 指令" value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} style={{ width: 220 }} rows={1} disabled={!recording} size="small" />
+                <Button size="small" icon={<SendOutlined />} onClick={handleInsertAi} disabled={!recording}>插入</Button>
+              </Space>
+            </div>
+          </div>
+        ),
+      }]}
+    />
+  )
+
+  // 已录制步骤面板
+  const stepsPanel = (
+    <Card
+      title={`已录制步骤 (${displayItems.length})`}
+      size="small"
+      extra={
+        <Space size={4}>
+          <Button size="small" icon={<PlusOutlined />} onClick={() => openInsertModal(0)} disabled={displayItems.length === 0 && !recording && !selectedCase}>
+            在开头插入
+          </Button>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={handleDeleteLast} disabled={!recording || displayItems.length === 0}>
+            删除最后一步
+          </Button>
+        </Space>
+      }
+    >
+      <Table
+        columns={stepColumns}
+        dataSource={displayItems}
+        rowKey={(r) => r.seq}
+        size="small"
+        pagination={false}
+        scroll={{ y: recording ? 'calc(100vh - 280px)' : 500 }}
+      />
+    </Card>
+  )
+
   return (
     <div>
-      <h2>录制</h2>
-
-      <Card style={{ marginBottom: 16 }}>
+      {/* 控制栏 */}
+      <Card size="small" style={{ marginBottom: 12 }}>
         <Space size="middle" wrap>
           <span style={{ fontWeight: 'bold' }}>选择用例：</span>
           <Select
@@ -339,140 +458,92 @@ export default function Recording() {
               onKeyDown={(e) => e.preventDefault()}
             >停止录制</Button>
           )}
+          {recording && (
+            <Tag color="processing" style={{ marginLeft: 8 }}>录制中 — 已录制 {displayItems.length} 步</Tag>
+          )}
         </Space>
-
-        {recording && (
-          <Alert
-            style={{ marginTop: 12 }}
-            type="info"
-            message={`录制中 — 已录制 ${displayItems.length} 步`}
-            showIcon
-          />
-        )}
       </Card>
 
-      {caseDetail && (
-        <Card title={`用例详情 — ${caseDetail.key || ''} ${caseDetail.name || caseDetail.summary || ''}`} style={{ marginBottom: 16 }} size="small">
-          {caseDetail.precondition && (
-            <div style={{ marginBottom: 12 }}>
-              <strong>前置条件：</strong>
-              <div style={{ whiteSpace: 'pre-wrap', color: '#555', marginTop: 4, padding: '8px 12px', background: '#fff7e6', border: '1px solid #ffe7ba', borderRadius: 4 }}>
-                {caseDetail.precondition}
-              </div>
-            </div>
-          )}
-          {caseDetail.description && (
-            <div style={{ marginBottom: 12 }}>
-              <strong>描述：</strong>
-              <div style={{ whiteSpace: 'pre-wrap', color: '#555', marginTop: 4, padding: '8px 12px', background: '#fafafa', borderRadius: 4 }}>
-                {caseDetail.description}
-              </div>
-            </div>
-          )}
-          {caseDetail.test_steps && caseDetail.test_steps.length > 0 && (
-            <div>
-              <strong>测试步骤：</strong>
-              <Table
-                style={{ marginTop: 4 }}
-                size="small"
-                pagination={false}
-                dataSource={caseDetail.test_steps}
-                rowKey={(r) => r.sequenceNumber || r.step}
-                columns={[
-                  { title: '序号', dataIndex: 'sequenceNumber', key: 'seq', width: 60 },
-                  { title: '操作步骤', dataIndex: 'step', key: 'step' },
-                  { title: '期望结果', dataIndex: 'expectedResult', key: 'expected' },
-                  { title: '测试数据', dataIndex: 'stepData', key: 'data', render: (v) => v || '-' },
-                ]}
+      {recording ? (
+        /* ===== 录制中：三栏布局 ===== */
+        <div style={{ display: 'flex', gap: 12, height: 'calc(100vh - 130px)' }}>
+          {/* 左栏：用例详情 */}
+          <div style={{
+            width: 320, flexShrink: 0,
+            overflow: 'auto', padding: '12px',
+            background: '#fff', borderRadius: 8, border: '1px solid #f0f0f0',
+          }}>
+            {caseDetailContent || <span style={{ color: '#999' }}>未选择用例</span>}
+          </div>
+
+          {/* 中栏：预览 + 操作面板 */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, overflow: 'auto' }}>
+            <Card title="实时预览" size="small" bodyStyle={{ padding: 8 }}>
+              <img
+                src="/api/tv/stream"
+                alt="TV 实时画面"
+                style={{ width: '100%', display: 'block', borderRadius: 4, background: '#000' }}
               />
+            </Card>
+            {operationPanel}
+          </div>
+
+          {/* 右栏：已录制步骤 */}
+          <div style={{ width: 380, flexShrink: 0 }}>
+            {stepsPanel}
+          </div>
+        </div>
+      ) : (
+        /* ===== 未录制：原有布局 ===== */
+        <>
+          {caseDetail && (
+            <Card title={`用例详情 — ${caseDetail.key || ''} ${caseDetail.name || caseDetail.summary || ''}`} style={{ marginBottom: 12 }} size="small">
+              {caseDetailContent}
+            </Card>
+          )}
+
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <Card title="实时预览" size="small" style={{ marginBottom: 12 }} bodyStyle={{ padding: 8 }}>
+                <img
+                  src="/api/tv/stream"
+                  alt="TV 实时画面"
+                  style={{ width: '100%', maxHeight: 400, border: '1px solid #d9d9d9', borderRadius: 4, background: '#000' }}
+                />
+              </Card>
+
+              <Card title="操作面板" size="small">
+                <div style={{ marginBottom: 16 }}>
+                  <h4>插入 ADB 命令</h4>
+                  <Space>
+                    <Input placeholder="ADB 命令" value={adbCommand} onChange={e => setAdbCommand(e.target.value)} style={{ width: 250 }} disabled={!recording} />
+                    <Input placeholder="描述（可选）" value={adbDesc} onChange={e => setAdbDesc(e.target.value)} style={{ width: 150 }} disabled={!recording} />
+                    <Button icon={<SendOutlined />} onClick={handleInsertAdb} disabled={!recording}>插入</Button>
+                  </Space>
+                </div>
+                <Divider />
+                <div>
+                  <h4>插入 AI 指令</h4>
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Radio.Group value={aiType} onChange={e => setAiType(e.target.value)} disabled={!recording}>
+                      <Radio.Button value="ai_navigate">AI 导航</Radio.Button>
+                      <Radio.Button value="ai_verify">AI 验证</Radio.Button>
+                    </Radio.Group>
+                    <Space>
+                      <Input.TextArea placeholder="AI 指令描述" value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} style={{ width: 400 }} rows={2} disabled={!recording} />
+                      <Button icon={<SendOutlined />} onClick={handleInsertAi} disabled={!recording}>插入</Button>
+                    </Space>
+                  </Space>
+                </div>
+              </Card>
             </div>
-          )}
-          {(!caseDetail.test_steps || caseDetail.test_steps.length === 0) && !caseDetail.description && !caseDetail.precondition && (
-            <span style={{ color: '#999' }}>该用例无详细步骤信息</span>
-          )}
-        </Card>
+
+            <div style={{ width: 400 }}>
+              {stepsPanel}
+            </div>
+          </div>
+        </>
       )}
-
-      <div style={{ display: 'flex', gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <Card title="实时预览" style={{ marginBottom: 16 }}>
-            <img
-              src="/api/tv/stream"
-              alt="TV 实时画面"
-              style={{ width: '100%', maxHeight: 400, border: '1px solid #d9d9d9', borderRadius: 4, background: '#000' }}
-            />
-          </Card>
-
-          <Card title="操作面板">
-            <div style={{ marginBottom: 16 }}>
-              <h4>插入 ADB 命令</h4>
-              <Space>
-                <Input
-                  placeholder="ADB 命令"
-                  value={adbCommand}
-                  onChange={e => setAdbCommand(e.target.value)}
-                  style={{ width: 250 }}
-                  disabled={!recording}
-                />
-                <Input
-                  placeholder="描述（可选）"
-                  value={adbDesc}
-                  onChange={e => setAdbDesc(e.target.value)}
-                  style={{ width: 150 }}
-                  disabled={!recording}
-                />
-                <Button icon={<SendOutlined />} onClick={handleInsertAdb} disabled={!recording}>插入</Button>
-              </Space>
-            </div>
-            <Divider />
-            <div>
-              <h4>插入 AI 指令</h4>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Radio.Group value={aiType} onChange={e => setAiType(e.target.value)} disabled={!recording}>
-                  <Radio.Button value="ai_navigate">AI 导航</Radio.Button>
-                  <Radio.Button value="ai_verify">AI 验证</Radio.Button>
-                </Radio.Group>
-                <Space>
-                  <Input.TextArea
-                    placeholder="AI 指令描述"
-                    value={aiPrompt}
-                    onChange={e => setAiPrompt(e.target.value)}
-                    style={{ width: 400 }}
-                    rows={2}
-                    disabled={!recording}
-                  />
-                  <Button icon={<SendOutlined />} onClick={handleInsertAi} disabled={!recording}>插入</Button>
-                </Space>
-              </Space>
-            </div>
-          </Card>
-        </div>
-
-        <div style={{ width: 400 }}>
-          <Card
-            title={`已录制步骤 (${displayItems.length})`}
-            extra={
-              <Space size={4}>
-                <Button size="small" icon={<PlusOutlined />} onClick={() => openInsertModal(0)} disabled={displayItems.length === 0 && !recording && !selectedCase}>
-                  在开头插入
-                </Button>
-                <Button size="small" danger icon={<DeleteOutlined />} onClick={handleDeleteLast} disabled={!recording || displayItems.length === 0}>
-                  删除最后一步
-                </Button>
-              </Space>
-            }
-          >
-            <Table
-              columns={stepColumns}
-              dataSource={displayItems}
-              rowKey={(r) => r.seq}
-              size="small"
-              pagination={false}
-              scroll={{ y: 500 }}
-            />
-          </Card>
-        </div>
-      </div>
 
       <Modal
         title={modalMode === 'insert' ? `在位置 ${modalIndex} 插入步骤` : `修改第 ${modalIndex + 1} 步`}
