@@ -456,7 +456,7 @@ export default function Replay() {
         )}
       </Card>
 
-      {/* 主体内容：实时预览 + 结果列表 */}
+      {/* 主体内容 */}
       <Row gutter={16}>
         <Col span={12}>
           <Card
@@ -476,24 +476,109 @@ export default function Replay() {
         </Col>
 
         <Col span={12}>
-          <Card
-            title={<Space>回放结果{results.length > 0 && <Tag>{results.length} 条</Tag>}</Space>}
-            size="small"
-            bodyStyle={{ padding: 0 }}
-          >
-            {results.length > 0 ? (
-              <Table
-                columns={resultColumns}
-                dataSource={results}
-                rowKey={(r) => r.timestamp || r.time || Math.random()}
-                size="small"
-                pagination={{ pageSize: 8, size: 'small' }}
-                style={{ margin: 0 }}
-              />
-            ) : (
-              <Empty description="暂无回放结果" style={{ padding: '40px 0' }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            )}
-          </Card>
+          {/* 回放中：显示步骤进度列表 */}
+          {replaying && status?.steps_overview?.length > 0 ? (
+            <Card
+              title={<Space>步骤进度<Tag color="processing">{currentStep} / {totalSteps}</Tag></Space>}
+              size="small"
+              bodyStyle={{ padding: 0 }}
+            >
+              <div style={{ maxHeight: 420, overflow: 'auto' }}>
+                {(status.steps_overview || []).map((s, i) => {
+                  const stepNum = i + 1
+                  const isDone = stepNum < currentStep
+                  const isCurrent = stepNum === currentStep
+                  const isPending = stepNum > currentStep
+                  // 从实时结果中获取已完成步骤的状态
+                  const stepResult = (status.step_results || [])[i]
+                  const stepStatus = stepResult?.status
+
+                  let statusIcon = <ClockCircleOutlined style={{ color: '#d9d9d9' }} />
+                  let bgColor = 'transparent'
+                  if (isCurrent) {
+                    statusIcon = <Badge status="processing" />
+                    bgColor = '#e6f4ff'
+                  } else if (isDone) {
+                    if (stepStatus === 'passed') {
+                      statusIcon = <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                    } else if (stepStatus === 'failed' || stepStatus === 'error') {
+                      statusIcon = <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+                    } else if (stepStatus === 'warning') {
+                      statusIcon = <WarningOutlined style={{ color: '#faad14' }} />
+                    } else {
+                      statusIcon = <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                    }
+                  }
+
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '8px 14px',
+                        borderBottom: '1px solid #f5f5f5',
+                        background: bgColor,
+                        opacity: isPending ? 0.5 : 1,
+                        transition: 'all 0.3s',
+                      }}
+                    >
+                      <span style={{ flexShrink: 0, width: 20, display: 'flex', justifyContent: 'center' }}>
+                        {statusIcon}
+                      </span>
+                      <span style={{
+                        flexShrink: 0, width: 36,
+                        fontWeight: 500, fontSize: 13,
+                        color: isCurrent ? '#1677ff' : isPending ? '#bbb' : '#333'
+                      }}>
+                        {stepNum}
+                      </span>
+                      <Tag
+                        color={isPending ? 'default' : 'blue'}
+                        style={{ margin: 0, fontSize: 11 }}
+                      >
+                        {stepTypeLabels[s.type] || s.type}
+                      </Tag>
+                      <span style={{
+                        flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        color: isCurrent ? '#1677ff' : isPending ? '#bbb' : '#555'
+                      }}>
+                        {s.summary}
+                      </span>
+                      {isDone && stepResult?.duration_s != null && (
+                        <span style={{ flexShrink: 0, fontSize: 11, color: '#999' }}>
+                          {stepResult.duration_s.toFixed(1)}s
+                        </span>
+                      )}
+                      {isCurrent && (
+                        <span style={{ flexShrink: 0, fontSize: 11, color: '#1677ff', fontWeight: 500 }}>
+                          执行中...
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          ) : (
+            <Card
+              title={<Space>回放结果{results.length > 0 && <Tag>{results.length} 条</Tag>}</Space>}
+              size="small"
+              bodyStyle={{ padding: 0 }}
+            >
+              {results.length > 0 ? (
+                <Table
+                  columns={resultColumns}
+                  dataSource={results}
+                  rowKey={(r) => r.timestamp || r.time || Math.random()}
+                  size="small"
+                  pagination={{ pageSize: 8, size: 'small' }}
+                  style={{ margin: 0 }}
+                />
+              ) : (
+                <Empty description="暂无回放结果" style={{ padding: '40px 0' }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </Card>
+          )}
         </Col>
       </Row>
 

@@ -58,6 +58,9 @@ class ReplayEngine:
         self._total_runs = 0
         self._replay_thread = None
         self._lock = threading.Lock()
+        # 实时步骤状态列表，供前端轮询
+        self._steps_overview = []  # [{type, summary, status}, ...]
+        self._step_results = []    # 已完成步骤的结果快照
 
     # ------------------------------------------------------------------
     # 公共属性
@@ -78,6 +81,8 @@ class ReplayEngine:
                 "total_steps": self._total_steps,
                 "current_run": self._current_run,
                 "total_runs": self._total_runs,
+                "steps_overview": list(self._steps_overview),
+                "step_results": list(self._step_results),
             }
 
     # ------------------------------------------------------------------
@@ -126,6 +131,9 @@ class ReplayEngine:
             self._current_step = 0
             self._total_runs = repeat
             self._current_run = 0
+            self._step_results = []
+            # 构建步骤概览（供前端展示）
+            self._steps_overview = self._build_steps_overview(steps)
 
         # 创建结果目录
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -336,6 +344,10 @@ class ReplayEngine:
                 result["prompt"] = step.get("prompt", "")
 
             step_results.append(result)
+
+            # 实时更新步骤结果（供前端轮询）
+            with self._lock:
+                self._step_results = list(step_results)
 
             # 如果步骤失败且需要中断
             if result.get("status") == "failed":
@@ -561,6 +573,43 @@ class ReplayEngine:
     # ------------------------------------------------------------------
     # 工具方法
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_steps_overview(steps):
+        """从原始步骤列表构建概览信息（类型 + 摘要文字）"""
+        overview = []
+        for step in steps:
+            step_type = step.get("type", "")
+            summary = ""
+            if step_type == "key_group":
+                cmds = step.get("commands", [])
+                if len(cmds) == 1:
+                    c = cmds[0]
+                    key = c.get("key", "")
+                    if c.get("is_long_press"):
+                        dur = c.get("duration_ms", 0)
+                        summary = f"长按 {key} {dur / 1000:.1f}s" if dur else f"长按 {key}"
+                    else:
+                        summary = key
+                elif len(cmds) > 1:
+                    keys = [c.get("key", "") for c in cmds]
+                    if len(set(keys)) == 1:
+                        summary = f"{keys[0]} ×{len(keys)}"
+                    else:
+                        summary = " → ".join(keys)
+                interval = step.get("interval_ms", 0)
+                if interval and len(cmds) > 1:
+                    summary += f"（间隔 {interval}ms）"
+            elif step_type == "adb_command":
+                summary = step.get("description") or step.get("command", "")
+            elif step_type == "ai_navigate":
+                prompt = step.get("prompt", "")
+                summary = prompt[:40] + "..." if len(prompt) > 40 else prompt
+            elif step_type == "ai_verify":
+                prompt = step.get("prompt", "")
+                summary = prompt[:40] + "..." if len(prompt) > 40 else prompt
+            overview.append({"type": step_type, "summary": summary})
+        return overview
 
     def _take_screenshot(self, filepath):
         """截图：使用采集卡或回退 ADB
