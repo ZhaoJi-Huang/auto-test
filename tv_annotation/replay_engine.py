@@ -757,20 +757,35 @@ class ReplayEngine:
             time.sleep(_ACTIVITY_POLL_INTERVAL)
 
     def _send_long_press(self, keycode, duration_ms):
-        """使用 sendevent 精确发送长按
+        """模拟长按：在指定时长内持续重复发送按键事件
 
-        sendevent 比 input keyevent --longpress 更精确。
+        `input keyevent --longpress` 只发送一次长按事件（约 500ms），
+        无法模拟用户持续按住按键的效果（如方向键长按滚动）。
+        改为在 duration_ms 时长内每隔 REPEAT_INTERVAL_MS 发送一次按键，
+        真实还原录制时的持续按压行为。
         """
-        # 获取 keycode 数值（去除 KEYCODE_ 前缀后查 Android 定义）
-        # 回退方案：使用 input keyevent --longpress
-        try:
-            run_adb(
-                ["shell", "input", "keyevent", "--longpress", keycode],
-                device_serial=self._device_serial,
-                timeout=max(duration_ms / 1000.0 + 5, 10),
-            )
-        except Exception as e:
-            logger.warning(f"长按执行失败: {e}")
+        REPEAT_INTERVAL_MS = 120  # 重复间隔（毫秒），接近 TV 遥控器真实重复率
+        duration_s = duration_ms / 1000.0
+        interval_s = REPEAT_INTERVAL_MS / 1000.0
+
+        logger.info(f"长按模拟: {keycode}, 时长={duration_ms}ms, 间隔={REPEAT_INTERVAL_MS}ms")
+
+        start = time.time()
+        count = 0
+        while time.time() - start < duration_s:
+            if self._stop_requested:
+                break
+            try:
+                send_keyevent(self._device_serial, keycode)
+                count += 1
+            except Exception as e:
+                logger.warning(f"长按按键发送失败: {e}")
+                break
+            elapsed = time.time() - start
+            if elapsed < duration_s:
+                time.sleep(min(interval_s, duration_s - elapsed))
+
+        logger.info(f"长按模拟完成: {keycode}, 共发送 {count} 次, 实际耗时={time.time() - start:.2f}s")
 
     def _save_json(self, filepath, data):
         """原子写入 JSON 文件"""
