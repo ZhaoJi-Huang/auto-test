@@ -661,37 +661,12 @@ export default function Recording() {
 
           <div style={{ display: 'flex', gap: 16 }}>
             <div style={{ flex: 1 }}>
-              <Card title="实时预览" size="small" style={{ marginBottom: 12 }} bodyStyle={{ padding: 8 }}>
+              <Card title="实时预览" size="small" bodyStyle={{ padding: 8 }}>
                 <img
                   src="/api/tv/stream"
                   alt="TV 实时画面"
                   style={{ width: '100%', maxHeight: 400, border: '1px solid #d9d9d9', borderRadius: 4, background: '#000' }}
                 />
-              </Card>
-
-              <Card title="操作面板" size="small">
-                <div style={{ marginBottom: 16 }}>
-                  <h4>插入 ADB 命令</h4>
-                  <Space>
-                    <Input placeholder="ADB 命令" value={adbCommand} onChange={e => setAdbCommand(e.target.value)} style={{ width: 250 }} disabled={!recording} />
-                    <Input placeholder="描述（可选）" value={adbDesc} onChange={e => setAdbDesc(e.target.value)} style={{ width: 150 }} disabled={!recording} />
-                    <Button icon={<SendOutlined />} onClick={handleInsertAdb} disabled={!recording}>插入</Button>
-                  </Space>
-                </div>
-                <Divider />
-                <div>
-                  <h4>插入 AI 指令</h4>
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Radio.Group value={aiType} onChange={e => setAiType(e.target.value)} disabled={!recording}>
-                      <Radio.Button value="ai_navigate">AI 导航</Radio.Button>
-                      <Radio.Button value="ai_verify">AI 验证</Radio.Button>
-                    </Radio.Group>
-                    <Space>
-                      <Input.TextArea placeholder="AI 指令描述" value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} style={{ width: 400 }} rows={2} disabled={!recording} />
-                      <Button icon={<SendOutlined />} onClick={handleInsertAi} disabled={!recording}>插入</Button>
-                    </Space>
-                  </Space>
-                </div>
               </Card>
             </div>
 
