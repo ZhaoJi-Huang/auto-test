@@ -225,12 +225,7 @@ class CaptureCardManager:
                 return False
             frame = self.get_frame()
             if frame is not None:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                if Image:
-                    pil_image = Image.fromarray(frame_rgb)
-                    pil_image.save(filepath, quality=95, optimize=True)
-                else:
-                    cv2.imwrite(filepath, frame)
+                cv2.imwrite(filepath, frame)
                 return True
         except Exception as e:
             print(f"[CaptureCard] 保存图片失败: {e}")

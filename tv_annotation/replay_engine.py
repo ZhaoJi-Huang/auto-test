@@ -418,34 +418,39 @@ class ReplayEngine:
             if cmd_idx < len(commands) - 1:
                 time.sleep(interval_s)
 
-        # 3. 等待画面稳定（Activity 轮询）
-        self._wait_activity_stable()
-
-        # 4. 校验 after_activity
+        # 3. 校验 after_activity（智能等待：匹配则跳过多轮轮询）
         if expected_after:
             current = get_current_activity(self._device_serial)
-            if current and expected_after and current != expected_after:
-                # 尝试 BACK 键恢复
-                logger.warning(f"after_activity 不一致，尝试 BACK 键恢复: 期望 {expected_after}，实际 {current}")
-                send_keyevent(self._device_serial, "KEYCODE_BACK")
-                time.sleep(1.0)
-
+            if current == expected_after:
+                # 已匹配，无需等待
+                logger.info(f"after_activity 直接匹配: {current}")
+            elif current:
+                # 不匹配，等待画面稳定后再检查
+                self._wait_activity_stable()
                 current = get_current_activity(self._device_serial)
-                if current == expected_after:
-                    # 恢复成功
-                    return {
-                        "status": "warning",
-                        "reason": f"BACK 键恢复成功（原始 Activity 不一致）",
-                    }
-                else:
-                    # 仍不一致，中断
-                    screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}_mismatch.png")
-                    self._take_screenshot(screenshot_path)
-                    return {
-                        "status": "failed",
-                        "reason": f"after_activity 不一致且恢复失败: 期望 {expected_after}，实际 {current}",
-                        "screenshot": screenshot_path,
-                    }
+                if current and current != expected_after:
+                    # 尝试 BACK 键恢复
+                    logger.warning(f"after_activity 不一致，尝试 BACK 键恢复: 期望 {expected_after}，实际 {current}")
+                    send_keyevent(self._device_serial, "KEYCODE_BACK")
+                    time.sleep(1.0)
+
+                    current = get_current_activity(self._device_serial)
+                    if current == expected_after:
+                        return {
+                            "status": "warning",
+                            "reason": f"BACK 键恢复成功（原始 Activity 不一致）",
+                        }
+                    else:
+                        screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}_mismatch.png")
+                        self._take_screenshot(screenshot_path)
+                        return {
+                            "status": "failed",
+                            "reason": f"after_activity 不一致且恢复失败: 期望 {expected_after}，实际 {current}",
+                            "screenshot": screenshot_path,
+                        }
+        else:
+            # 无 after_activity 期望值，短暂等待画面稳定
+            self._wait_activity_stable()
 
         # 截图记录
         screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
@@ -488,27 +493,30 @@ class ReplayEngine:
         except Exception as e:
             return {"status": "failed", "reason": f"ADB 命令执行失败: {e}"}
 
-        # 3. 等待画面稳定
-        self._wait_activity_stable()
-
-        # 4. 校验 after_activity
+        # 3. 校验 after_activity（智能等待）
         if expected_after:
             current = get_current_activity(self._device_serial)
-            if current and expected_after and current != expected_after:
-                # 尝试 BACK 键恢复
-                send_keyevent(self._device_serial, "KEYCODE_BACK")
-                time.sleep(1.0)
+            if current == expected_after:
+                logger.info(f"after_activity 直接匹配: {current}")
+            elif current:
+                self._wait_activity_stable()
                 current = get_current_activity(self._device_serial)
-                if current == expected_after:
-                    return {"status": "warning", "reason": "BACK 键恢复成功"}
-                else:
-                    screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}_mismatch.png")
-                    self._take_screenshot(screenshot_path)
-                    return {
-                        "status": "failed",
-                        "reason": f"after_activity 不一致: 期望 {expected_after}，实际 {current}",
-                        "screenshot": screenshot_path,
-                    }
+                if current and current != expected_after:
+                    send_keyevent(self._device_serial, "KEYCODE_BACK")
+                    time.sleep(1.0)
+                    current = get_current_activity(self._device_serial)
+                    if current == expected_after:
+                        return {"status": "warning", "reason": "BACK 键恢复成功"}
+                    else:
+                        screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}_mismatch.png")
+                        self._take_screenshot(screenshot_path)
+                        return {
+                            "status": "failed",
+                            "reason": f"after_activity 不一致: 期望 {expected_after}，实际 {current}",
+                            "screenshot": screenshot_path,
+                        }
+        else:
+            self._wait_activity_stable()
 
         screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
         self._take_screenshot(screenshot_path)
