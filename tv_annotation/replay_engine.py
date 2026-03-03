@@ -652,7 +652,11 @@ class ReplayEngine:
                 prompt=prompt,
                 device_serial=self._device_serial,
                 capture_func=capture_func,
+                stop_check=lambda: self._stop_requested,
             )
+
+            if result["result"] == "aborted":
+                return {"status": "aborted", "reason": "用户手动停止"}
 
             return {
                 "status": "passed" if result["result"] == "success" else "warning",

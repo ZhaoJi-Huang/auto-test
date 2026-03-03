@@ -139,7 +139,7 @@ def _parse_json_response(text):
     raise ValueError(f"无法解析大模型返回的 JSON: {text[:200]}")
 
 
-def ai_navigate(prompt, device_serial, capture_func, max_rounds=20):
+def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=None):
     """AI 动态导航：截图 -> 发给大模型 -> 执行按键 -> 循环直到完成
 
     Args:
@@ -147,10 +147,11 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20):
         device_serial: ADB 设备序列号
         capture_func: 截图函数，签名 capture_func(filepath) -> bool
         max_rounds: 最大轮次
+        stop_check: 停止检查函数，返回 True 时中断导航
 
     Returns:
         dict: {
-            "result": "success" | "timeout",
+            "result": "success" | "timeout" | "aborted",
             "rounds": [...],
             "total_rounds": N
         }
@@ -169,6 +170,15 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20):
     rounds = []
 
     for i in range(1, max_rounds + 1):
+        # 检查是否需要停止
+        if stop_check and stop_check():
+            logger.info(f"AI 导航被中断（第 {i} 轮）")
+            return {
+                "result": "aborted",
+                "rounds": rounds,
+                "total_rounds": i - 1,
+            }
+
         round_info = {"round": i}
 
         try:
