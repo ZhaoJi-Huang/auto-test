@@ -418,7 +418,10 @@ class ReplayEngine:
             if cmd_idx < len(commands) - 1:
                 time.sleep(interval_s)
 
-        # 3. 校验 after_activity（智能等待：匹配则跳过多轮轮询）
+        # 3. 等待 TV 动画完成
+        time.sleep(1.0)
+
+        # 4. 校验 after_activity（智能等待：匹配则跳过多轮轮询）
         if expected_after:
             current = get_current_activity(self._device_serial)
             if current == expected_after:
