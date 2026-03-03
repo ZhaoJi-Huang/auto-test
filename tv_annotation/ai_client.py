@@ -103,8 +103,14 @@ def chat(text, image_url=None, workflow_id=None):
         )
         response.raise_for_status()
         result = response.json()
-        return result["data"]["text"]
+        logger.debug(f"大模型返回 keys: {list(result.get('data', {}).keys()) if isinstance(result.get('data'), dict) else type(result.get('data'))}")
+        # 兼容不同返回结构：优先 data.text，其次 data.content，最后整个 data
+        data_field = result.get("data", {})
+        if isinstance(data_field, dict):
+            return data_field.get("text") or data_field.get("content") or json.dumps(data_field, ensure_ascii=False)
+        return str(data_field)
     except Exception as e:
+        logger.error(f"大模型请求失败，响应: {response.text[:500] if 'response' in dir() else 'N/A'}")
         raise RuntimeError(f"大模型请求失败: {e}")
 
 
@@ -240,7 +246,7 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
 
         except Exception as e:
             round_info["error"] = str(e)
-            logger.error(f"AI 导航第 {i} 轮异常: {e}")
+            logger.error(f"AI 导航第 {i} 轮异常: {e}", exc_info=True)
 
         rounds.append(round_info)
 
