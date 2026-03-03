@@ -19,7 +19,7 @@ from common.adb_utils import (
     send_keyevent,
 )
 from common.utils import ADB_PATH
-from tv_annotation.key_mappings import ADB_KEYCODE_MAP
+from tv_annotation.key_mappings import ADB_KEYCODE_MAP, get_linux_keycode
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,9 @@ class ReplayEngine:
         self._data_dir = data_dir
         self._scripts_repo_path = scripts_repo_path
         self._capture_card = capture_card
+
+        # sendevent 长按用的输入设备路径（延迟检测）
+        self._input_device = None
 
         # 回放状态
         self._is_replaying = False
@@ -757,18 +760,63 @@ class ReplayEngine:
             time.sleep(_ACTIVITY_POLL_INTERVAL)
 
     def _send_long_press(self, keycode, duration_ms):
-        """模拟长按：在指定时长内持续重复发送按键事件
+        """通过 sendevent 精确模拟长按：按下 → 等待指定时长 → 松开
 
-        `input keyevent --longpress` 只发送一次长按事件（约 500ms），
-        无法模拟用户持续按住按键的效果（如方向键长按滚动）。
-        改为在 duration_ms 时长内每隔 REPEAT_INTERVAL_MS 发送一次按键，
-        真实还原录制时的持续按压行为。
+        使用 sendevent 发送 EV_KEY down/up 事件，精确控制按住时长。
+        keycode: ADB keycode 名称（如 KEYCODE_DPAD_DOWN）
+        duration_ms: 按住时长（毫秒）
         """
-        REPEAT_INTERVAL_MS = 120  # 重复间隔（毫秒），接近 TV 遥控器真实重复率
+        # 获取 Linux input event code
+        # keycode 格式如 "KEYCODE_DPAD_DOWN"，需要还原为按键名 "DOWN"
+        key_name = None
+        for name, adb_code in ADB_KEYCODE_MAP.items():
+            if adb_code == keycode:
+                key_name = name
+                break
+
+        linux_code = get_linux_keycode(key_name) if key_name else None
+
+        if linux_code is None:
+            # 无法映射到 Linux keycode，回退到重复发送
+            logger.warning(f"无法获取 Linux keycode: {keycode}，回退到重复发送")
+            self._send_long_press_repeat(keycode, duration_ms)
+            return
+
+        # 延迟检测输入设备
+        if self._input_device is None:
+            self._input_device = self._find_input_device()
+        if not self._input_device:
+            logger.warning("未找到输入设备，回退到重复发送")
+            self._send_long_press_repeat(keycode, duration_ms)
+            return
+
+        duration_s = duration_ms / 1000.0
+        dev = self._input_device
+        # EV_KEY=1, value=1 按下, value=0 松开; EV_SYN=0 0 0 同步
+        shell_cmd = (
+            f"sendevent {dev} 1 {linux_code} 1 && "
+            f"sendevent {dev} 0 0 0 && "
+            f"sleep {duration_s:.2f} && "
+            f"sendevent {dev} 1 {linux_code} 0 && "
+            f"sendevent {dev} 0 0 0"
+        )
+
+        logger.info(f"sendevent 长按: {key_name}(linux={linux_code}), 时长={duration_ms}ms, 设备={dev}")
+        try:
+            run_adb(
+                ["shell", shell_cmd],
+                device_serial=self._device_serial,
+                timeout=duration_s + 10,
+            )
+        except Exception as e:
+            logger.warning(f"sendevent 长按失败: {e}，回退到重复发送")
+            self._send_long_press_repeat(keycode, duration_ms)
+
+    def _send_long_press_repeat(self, keycode, duration_ms):
+        """回退方案：在指定时长内持续重复发送按键事件"""
+        REPEAT_INTERVAL_MS = 120
         duration_s = duration_ms / 1000.0
         interval_s = REPEAT_INTERVAL_MS / 1000.0
-
-        logger.info(f"长按模拟: {keycode}, 时长={duration_ms}ms, 间隔={REPEAT_INTERVAL_MS}ms")
 
         start = time.time()
         count = 0
@@ -784,8 +832,62 @@ class ReplayEngine:
             elapsed = time.time() - start
             if elapsed < duration_s:
                 time.sleep(min(interval_s, duration_s - elapsed))
+        logger.info(f"重复发送长按完成: {keycode}, 共 {count} 次, 耗时={time.time() - start:.2f}s")
 
-        logger.info(f"长按模拟完成: {keycode}, 共发送 {count} 次, 实际耗时={time.time() - start:.2f}s")
+    def _find_input_device(self):
+        """自动查找按键输入设备路径（用于 sendevent）
+
+        Returns:
+            str: 设备路径如 "/dev/input/event0"，找不到返回 None
+        """
+        import re
+        try:
+            result = run_adb(
+                ["shell", "getevent", "-pl"],
+                device_serial=self._device_serial,
+                timeout=10,
+            )
+            output = result.stdout.decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.warning(f"获取输入设备列表失败: {e}")
+            return None
+
+        current_device = None
+        current_name = ""
+        candidates = []
+        exclude = ["touch", "mouse", "touchscreen", "touchpad"]
+
+        for line in output.splitlines():
+            m = re.match(r"add device \d+:\s*(/dev/input/event\d+)", line)
+            if m:
+                current_device = m.group(1)
+                current_name = ""
+                continue
+            m = re.match(r'\s+name:\s+"(.+)"', line)
+            if m:
+                current_name = m.group(1)
+                continue
+            if current_device and re.match(r"\s+KEY", line):
+                candidates.append((current_device, current_name))
+                current_device = None
+
+        # 优先选遥控器 / IR 设备
+        for dev, name in candidates:
+            nl = name.lower()
+            if any(ex in nl for ex in exclude):
+                continue
+            if any(kw in nl for kw in ["ir", "remote", "rc", "cec"]):
+                logger.info(f"回放引擎选择输入设备: {dev} ({name})")
+                return dev
+
+        # 兜底：第一个非 touch 设备
+        for dev, name in candidates:
+            if not any(ex in name.lower() for ex in exclude):
+                logger.info(f"回放引擎使用默认输入设备: {dev} ({name})")
+                return dev
+
+        logger.warning("未找到合适的输入设备")
+        return None
 
     def _save_json(self, filepath, data):
         """原子写入 JSON 文件"""

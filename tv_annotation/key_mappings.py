@@ -70,6 +70,18 @@ ADB_KEYCODE_MAP = {
 }
 
 
+# 反向映射：按键名 → Linux input event code（供 sendevent 长按使用）
+KEY_NAME_TO_LINUX_CODE = {}
+for _code, _name in KEY_CODE_MAP.items():
+    if _name not in KEY_NAME_TO_LINUX_CODE:  # 优先保留第一个映射
+        KEY_NAME_TO_LINUX_CODE[_name] = _code
+
+
+def get_linux_keycode(key_name):
+    """获取 Linux input event code（用于 sendevent）"""
+    return KEY_NAME_TO_LINUX_CODE.get(key_name)
+
+
 def get_key_name(key_code):
     """将 Linux input event code 转换为可读名称"""
     return KEY_CODE_MAP.get(key_code, f"UNKNOWN_{key_code}")
