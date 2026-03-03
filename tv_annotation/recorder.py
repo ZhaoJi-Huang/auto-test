@@ -19,7 +19,7 @@ from tv_annotation.key_mappings import get_key_name, get_adb_keycode
 logger = logging.getLogger(__name__)
 
 # 长按判定阈值（秒）
-LONG_PRESS_THRESHOLD = 0.8
+LONG_PRESS_THRESHOLD = 0.5
 # 按键分组间隔阈值（秒）：间隔 < 此值的连续按键归为同一组
 KEY_GROUP_INTERVAL = 1.0
 
