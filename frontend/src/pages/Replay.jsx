@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  Card, Select, Button, Space, Table, InputNumber, Switch, Progress, Tag,
+  Card, Select, Button, Space, Table, InputNumber, Switch, Progress, Tag, Tabs,
   message, Collapse, Image, Row, Col, Statistic, Badge, Timeline, Modal, Empty, Tooltip
 } from 'antd'
 import {
   PlayCircleOutlined, StopOutlined, CheckCircleOutlined, CloseCircleOutlined,
   ClockCircleOutlined, EyeOutlined, WarningOutlined, ExclamationCircleOutlined,
-  ReloadOutlined
+  ReloadOutlined, FileTextOutlined, HistoryOutlined
 } from '@ant-design/icons'
-import { getCases, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult } from '../api'
+import { getCases, getCase, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult } from '../api'
 
 // 步骤截图 URL：通过后端 API 获取
 const getScreenshotUrl = (screenshotPath) => {
@@ -56,7 +56,19 @@ export default function Replay() {
   const [detailVisible, setDetailVisible] = useState(false)
   const [detailData, setDetailData] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [caseDetail, setCaseDetail] = useState(null)
+  const [rightTab, setRightTab] = useState('info')
   const timerRef = useRef(null)
+
+  const fetchCaseDetail = async (caseKey) => {
+    if (!caseKey) { setCaseDetail(null); return }
+    try {
+      const res = await getCase(caseKey)
+      setCaseDetail(res.data?.data || null)
+    } catch (e) {
+      setCaseDetail(null)
+    }
+  }
 
   const fetchCases = async () => {
     try {
@@ -96,7 +108,12 @@ export default function Replay() {
   }, [])
 
   useEffect(() => {
-    if (selectedCase) fetchResults(selectedCase)
+    if (selectedCase) {
+      fetchResults(selectedCase)
+      fetchCaseDetail(selectedCase)
+    } else {
+      setCaseDetail(null)
+    }
   }, [selectedCase])
 
   useEffect(() => {
@@ -489,7 +506,6 @@ export default function Replay() {
                   const isDone = stepNum < currentStep
                   const isCurrent = stepNum === currentStep
                   const isPending = stepNum > currentStep
-                  // 从实时结果中获取已完成步骤的状态
                   const stepResult = (status.step_results || [])[i]
                   const stepStatus = stepResult?.status
 
@@ -560,23 +576,139 @@ export default function Replay() {
               </div>
             </Card>
           ) : (
-            <Card
-              title={<Space>回放结果{results.length > 0 && <Tag>{results.length} 条</Tag>}</Space>}
-              size="small"
-              bodyStyle={{ padding: 0 }}
-            >
-              {results.length > 0 ? (
-                <Table
-                  columns={resultColumns}
-                  dataSource={results}
-                  rowKey={(r) => r.timestamp || r.time || Math.random()}
-                  size="small"
-                  pagination={{ pageSize: 8, size: 'small' }}
-                  style={{ margin: 0 }}
-                />
-              ) : (
-                <Empty description="暂无回放结果" style={{ padding: '40px 0' }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              )}
+            <Card size="small" bodyStyle={{ padding: 0 }}>
+              <Tabs
+                activeKey={rightTab}
+                onChange={setRightTab}
+                size="small"
+                style={{ marginBottom: 0 }}
+                tabBarStyle={{ margin: '0 16px' }}
+                items={[
+                  {
+                    key: 'info',
+                    label: <span><FileTextOutlined /> 用例信息</span>,
+                    children: selectedCase && caseDetail ? (
+                      <div style={{ maxHeight: 420, overflow: 'auto', padding: '0 16px 12px' }}>
+                        {/* 基本信息 */}
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>
+                            {caseDetail.summary || caseDetail.key}
+                          </div>
+                          <Space size={[4, 4]} wrap>
+                            {caseDetail.priority && <Tag color="orange">{caseDetail.priority}</Tag>}
+                            {caseDetail.source && <Tag>{caseDetail.source === 'jira' ? 'Jira' : '本地'}</Tag>}
+                            {caseDetail.issuetype && <Tag>{caseDetail.issuetype}</Tag>}
+                          </Space>
+                        </div>
+
+                        {/* 用例路径 */}
+                        {caseDetail.customfield_10107 && (
+                          <div style={{ fontSize: 12, color: '#888', marginBottom: 10, wordBreak: 'break-all' }}>
+                            {caseDetail.customfield_10107}
+                          </div>
+                        )}
+
+                        {/* 前置条件 */}
+                        {caseDetail.precondition && (
+                          <div style={{
+                            padding: '10px 12px', marginBottom: 12,
+                            background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6,
+                          }}>
+                            <div style={{ fontWeight: 500, fontSize: 13, color: '#ad6800', marginBottom: 4 }}>
+                              <WarningOutlined style={{ marginRight: 4 }} />前置条件
+                            </div>
+                            <div style={{ fontSize: 13, color: '#333', whiteSpace: 'pre-wrap' }}>
+                              {caseDetail.precondition}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Jira 测试步骤 */}
+                        {caseDetail.test_steps?.length > 0 && (
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 6, color: '#555' }}>
+                              测试步骤
+                            </div>
+                            {caseDetail.test_steps.map((ts, i) => (
+                              <div key={i} style={{
+                                padding: '8px 12px', marginBottom: 6,
+                                background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, fontSize: 13,
+                              }}>
+                                <div style={{ color: '#333', whiteSpace: 'pre-wrap' }}>{ts.step}</div>
+                                {ts.expectedResult && (
+                                  <div style={{ marginTop: 6, padding: '6px 10px', background: '#f6ffed', borderRadius: 4, border: '1px solid #d9f7be' }}>
+                                    <span style={{ color: '#389e0d', fontWeight: 500, fontSize: 12 }}>期望结果：</span>
+                                    <span style={{ color: '#555', fontSize: 12, whiteSpace: 'pre-wrap' }}>{ts.expectedResult}</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 录制步骤预览 */}
+                        {caseDetail.recorded_steps?.length > 0 && (
+                          <div>
+                            <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 6, color: '#555' }}>
+                              录制步骤 <Tag style={{ marginLeft: 4 }}>{caseDetail.recorded_steps.length} 步</Tag>
+                            </div>
+                            {caseDetail.recorded_steps.map((s, i) => {
+                              const sType = s.type || ''
+                              let summary = ''
+                              if (sType === 'key_group') {
+                                const cmds = s.commands || []
+                                if (cmds.length === 1) {
+                                  const c = cmds[0]
+                                  summary = c.is_long_press ? `长按 ${c.key}` : c.key
+                                } else if (cmds.length > 1) {
+                                  const keys = cmds.map(c => c.key)
+                                  summary = keys.every(k => k === keys[0])
+                                    ? `${keys[0]} x${cmds.length}`
+                                    : keys.join(' → ')
+                                  if (s.interval_ms) summary += ` (${s.interval_ms}ms)`
+                                }
+                              } else if (sType === 'adb_command') {
+                                summary = s.description || s.command || ''
+                              } else if (sType === 'ai_navigate' || sType === 'ai_verify') {
+                                const p = s.prompt || ''
+                                summary = p.length > 40 ? p.slice(0, 40) + '...' : p
+                              }
+                              return (
+                                <div key={i} style={{
+                                  display: 'flex', alignItems: 'center', gap: 8,
+                                  padding: '6px 12px', borderBottom: '1px solid #f5f5f5',
+                                }}>
+                                  <span style={{ flexShrink: 0, width: 28, fontSize: 12, color: '#999', textAlign: 'center' }}>{i + 1}</span>
+                                  <Tag color="default" style={{ margin: 0, fontSize: 11 }}>{stepTypeLabels[sType] || sType}</Tag>
+                                  <span style={{ flex: 1, fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <Empty description="请选择用例" style={{ padding: '40px 0' }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    ),
+                  },
+                  {
+                    key: 'history',
+                    label: <span><HistoryOutlined /> 回放记录{results.length > 0 && <Tag style={{ marginLeft: 4 }}>{results.length}</Tag>}</span>,
+                    children: results.length > 0 ? (
+                      <Table
+                        columns={resultColumns}
+                        dataSource={results}
+                        rowKey={(r) => r.timestamp || r.time || Math.random()}
+                        size="small"
+                        pagination={{ pageSize: 8, size: 'small' }}
+                        style={{ margin: 0 }}
+                      />
+                    ) : (
+                      <Empty description="暂无回放结果" style={{ padding: '40px 0' }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    ),
+                  },
+                ]}
+              />
             </Card>
           )}
         </Col>
