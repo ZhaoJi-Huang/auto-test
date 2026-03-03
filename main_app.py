@@ -169,6 +169,19 @@ def index():
     return send_from_directory(static_dir, "index.html")
 
 
+@app.errorhandler(404)
+def fallback(e):
+    """SPA fallback：非 API 路径返回 index.html，由前端路由处理"""
+    from flask import request
+    if request.path.startswith("/api/"):
+        return jsonify({"success": False, "error": "接口不存在"}), 404
+    static_dir = os.path.join(BACKEND_DIR, "frontend_dist")
+    index_path = os.path.join(static_dir, "index.html")
+    if os.path.exists(index_path):
+        return send_from_directory(static_dir, "index.html")
+    return "Not Found", 404
+
+
 @app.route("/api/status")
 def api_status():
     """服务状态（兼容旧前端格式）"""
