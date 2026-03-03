@@ -167,6 +167,10 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
             try:
                 with open(result_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                # 检查是否有回放视频
+                video_file = os.path.join(result_dir, "replay.mp4")
+                data["has_video"] = os.path.isfile(video_file)
+                data["video_url"] = f"/api/tv/replay/video/{case_key}/{timestamp}" if data["has_video"] else None
                 return jsonify({"success": True, "data": data})
             except Exception as e:
                 return jsonify({"success": False, "error": f"读取结果失败: {e}"})
@@ -186,5 +190,18 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
             return jsonify({"success": False, "error": "截图不存在"}), 404
 
         return send_file(file_path, mimetype="image/png")
+
+    @bp.route("/api/tv/replay/video/<case_key>/<timestamp>", methods=["GET"])
+    def get_video(case_key, timestamp):
+        """获取回放视频"""
+        for part in (case_key, timestamp):
+            if ".." in part or "/" in part or "\\" in part:
+                return jsonify({"success": False, "error": "非法路径"}), 400
+
+        file_path = os.path.join(data_dir, "replay", case_key, timestamp, "replay.mp4")
+        if not os.path.isfile(file_path):
+            return jsonify({"success": False, "error": "视频不存在"}), 404
+
+        return send_file(file_path, mimetype="video/mp4")
 
     return bp

@@ -776,6 +776,20 @@ export default function Replay() {
               </Col>
             </Row>
 
+            {/* 回放视频 */}
+            {detailData.has_video && detailData.video_url && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8, color: '#555' }}>
+                  <PlayCircleOutlined style={{ marginRight: 4 }} />回放视频
+                </div>
+                <video
+                  src={detailData.video_url}
+                  controls
+                  style={{ width: '100%', borderRadius: 6, background: '#000' }}
+                />
+              </div>
+            )}
+
             {/* 步骤列表 */}
             <Collapse
               defaultActiveKey={
