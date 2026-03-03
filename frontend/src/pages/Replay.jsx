@@ -779,14 +779,20 @@ export default function Replay() {
             {/* 回放视频 */}
             {detailData.has_video && detailData.video_url && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8, color: '#555' }}>
-                  <PlayCircleOutlined style={{ marginRight: 4 }} />回放视频
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 500, fontSize: 13, color: '#555' }}>
+                    <PlayCircleOutlined style={{ marginRight: 4 }} />回放视频
+                  </span>
+                  <a href={detailData.video_url} download="replay.mp4" style={{ fontSize: 12 }}>下载视频</a>
                 </div>
                 <video
                   src={detailData.video_url}
                   controls
-                  style={{ width: '100%', borderRadius: 6, background: '#000' }}
-                />
+                  preload="metadata"
+                  style={{ width: '100%', borderRadius: 6, background: '#000', maxHeight: 360 }}
+                >
+                  浏览器不支持该视频格式，请<a href={detailData.video_url} download="replay.mp4">下载</a>观看
+                </video>
               </div>
             )}
 

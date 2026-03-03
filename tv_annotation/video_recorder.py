@@ -57,11 +57,16 @@ class VideoRecorder:
         self._output_path = output_path
         width, height = resolution
 
-        # 使用 mp4v 编码器
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self._writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # 尝试 H.264 编码器（浏览器兼容），不可用则回退 mp4v
+        for codec in ("avc1", "mp4v"):
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            self._writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            if self._writer.isOpened():
+                break
+            self._writer.release()
+            self._writer = None
 
-        if not self._writer.isOpened():
+        if self._writer is None or not self._writer.isOpened():
             self._writer = None
             raise RuntimeError(f"无法创建视频文件: {output_path}")
 

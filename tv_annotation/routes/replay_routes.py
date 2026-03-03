@@ -193,7 +193,7 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
 
     @bp.route("/api/tv/replay/video/<case_key>/<timestamp>", methods=["GET"])
     def get_video(case_key, timestamp):
-        """获取回放视频"""
+        """获取回放视频（支持 Range 请求，浏览器 video 标签需要）"""
         for part in (case_key, timestamp):
             if ".." in part or "/" in part or "\\" in part:
                 return jsonify({"success": False, "error": "非法路径"}), 400
@@ -202,6 +202,6 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
         if not os.path.isfile(file_path):
             return jsonify({"success": False, "error": "视频不存在"}), 404
 
-        return send_file(file_path, mimetype="video/mp4")
+        return send_file(file_path, mimetype="video/mp4", conditional=True)
 
     return bp
