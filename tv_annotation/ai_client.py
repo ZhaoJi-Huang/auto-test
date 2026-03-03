@@ -94,6 +94,7 @@ def chat(text, image_url=None, workflow_id=None):
     if workflow_id:
         data["assistant_id"] = workflow_id
 
+    response = None
     try:
         response = requests.post(
             _CHAT_URL,
@@ -103,14 +104,19 @@ def chat(text, image_url=None, workflow_id=None):
         )
         response.raise_for_status()
         result = response.json()
-        logger.debug(f"大模型返回 keys: {list(result.get('data', {}).keys()) if isinstance(result.get('data'), dict) else type(result.get('data'))}")
         # 兼容不同返回结构：优先 data.text，其次 data.content，最后整个 data
         data_field = result.get("data", {})
         if isinstance(data_field, dict):
             return data_field.get("text") or data_field.get("content") or json.dumps(data_field, ensure_ascii=False)
         return str(data_field)
     except Exception as e:
-        logger.error(f"大模型请求失败，响应: {response.text[:500] if 'response' in dir() else 'N/A'}")
+        resp_text = ""
+        if response is not None:
+            try:
+                resp_text = response.text[:500]
+            except Exception:
+                pass
+        logger.error(f"大模型请求失败: {e}, 响应: {resp_text}")
         raise RuntimeError(f"大模型请求失败: {e}")
 
 
