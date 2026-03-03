@@ -19,7 +19,7 @@ from tv_annotation.key_mappings import get_key_name, get_adb_keycode
 logger = logging.getLogger(__name__)
 
 # 长按判定阈值（秒）
-LONG_PRESS_THRESHOLD = 1.5
+LONG_PRESS_THRESHOLD = 0.8
 # 按键分组间隔阈值（秒）：间隔 < 此值的连续按键归为同一组
 KEY_GROUP_INTERVAL = 1.0
 
@@ -625,11 +625,12 @@ class TVRecorder:
             return
 
         if value == 1:
-            # 按下
+            # 按下：保留最初按下时间戳（长按时遥控器可能连续发送 value=1）
             old_ts = self._key_press_times.get(code)
             if old_ts is not None:
-                logger.info(f"按键重复按下: code={code:#06x}, 覆盖旧时间戳 (间隔={timestamp - old_ts:.3f}s)")
-            self._key_press_times[code] = timestamp
+                logger.debug(f"按键重复按下(保留原始时间): code={code:#06x}, 已持续={timestamp - old_ts:.3f}s")
+            else:
+                self._key_press_times[code] = timestamp
         elif value == 0:
             # 释放
             press_time = self._key_press_times.pop(code, None)
