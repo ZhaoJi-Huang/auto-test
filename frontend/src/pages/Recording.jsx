@@ -266,7 +266,14 @@ export default function Recording() {
     } else if (s.type === 'ai_verify') {
       displayItems.push({ ...base, type: 'AI验证', label: s.prompt, color: 'green' })
     } else if (s.type === 'key_group') {
-      const keys = (s.commands || []).map(c => c.key || '?').join(' → ')
+      const keys = (s.commands || []).map(c => {
+        const name = c.key || '?'
+        if (c.is_long_press) {
+          const sec = c.duration_ms ? `${(c.duration_ms / 1000).toFixed(1)}s` : ''
+          return `${name}(长按${sec})`
+        }
+        return name
+      }).join(' → ')
       displayItems.push({ ...base, type: '按键组', label: keys, color: 'blue' })
     }
   })
