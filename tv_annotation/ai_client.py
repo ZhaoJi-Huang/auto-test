@@ -170,9 +170,9 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
         "用户目标：{prompt}\n"
         "可用按键：UP, DOWN, LEFT, RIGHT, ENTER, BACK, HOME\n"
         "请分析当前画面，返回 JSON 格式：\n"
-        '{"action": "按键名", "reason": "理由", "done": false}\n'
+        '{{"action": "按键名", "reason": "理由", "done": false}}\n'
         "如果目标已完成，返回：\n"
-        '{"action": "none", "done": true, "reason": "已完成的理由"}\n'
+        '{{"action": "none", "done": true, "reason": "已完成的理由"}}\n'
         "只返回 JSON，不要其他内容。"
     )
 
