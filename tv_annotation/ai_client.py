@@ -20,6 +20,7 @@ _BASE_HEADERS = {
     "X-App-Signature": "XcHFOesX3prKv8tLYpkf351_BzfgLv4LZ2U47nDggYk=",
     "X-APP-ID": "abc1502b-93a9-45e9-b3dc-e518a6821866",
     "username": "zhaoji1.huang",
+    "authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkZXBhcnRtZW50Ijoi5Yib5paw5bqU55So6YOoIiwiZXhwIjoxNzQyNTM3NTgwLCJ1c2VybmFtZSI6InpoYW9qaTEuaHVhbmcifQ.6Feu-Uv0b5Fwr4GDXWy2QGkqOL_x2peSPauq7Ynyhxg"
 }
 
 _FILE_UPLOAD_URL = "https://chat-ape-dls.tclking.com/chatape/v1/files/objects"
@@ -124,15 +125,30 @@ def _parse_json_response(text):
     # 尝试直接解析
     text = text.strip()
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
+        parsed = json.loads(text)
+        # 大模型可能返回被双重序列化的字符串，如 '"{\\"action\\":\\"UP\\"}"'
+        if isinstance(parsed, str):
+            parsed = json.loads(parsed)
+        return parsed
+    except (json.JSONDecodeError, TypeError):
         pass
 
     # 尝试从 markdown 代码块中提取
     match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(1).strip())
+            parsed = json.loads(match.group(1).strip())
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # 尝试提取第一个 {...} 块
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
         except json.JSONDecodeError:
             pass
 
@@ -202,7 +218,12 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
             round_info["ai_response"] = response_text
 
             # 4. 解析返回
+            logger.info(f"AI 导航第 {i} 轮原始返回: {response_text[:300]}")
             result = _parse_json_response(response_text)
+            if not isinstance(result, dict):
+                round_info["error"] = f"大模型返回非 JSON 对象: {type(result).__name__}"
+                rounds.append(round_info)
+                continue
             round_info["parsed"] = result
 
             # 5. 检查是否完成
