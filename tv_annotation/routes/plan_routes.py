@@ -493,6 +493,8 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
         repeat_aborted = 0
         case_result = "passed"
         was_stopped = False
+        # 收集每轮的回放 timestamp 和结果
+        run_records = []
 
         for r in range(repeat):
             # 检查停止
@@ -512,6 +514,7 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
                 if not started:
                     logger.error("回放启动失败 %s: %s", case_key, msg)
                     repeat_fail += 1
+                    run_records.append({"run": r + 1, "result": "failed", "replay_timestamp": None})
                     continue
 
                 # 等待回放完成
@@ -527,10 +530,16 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
                 if stopped_mid:
                     was_stopped = True
                     repeat_aborted += (repeat - r)
+                    # 记录被中止这一轮的 timestamp
+                    ts = _get_latest_replay_timestamp(data_dir, case_key)
+                    run_records.append({"run": r + 1, "result": "aborted", "replay_timestamp": ts})
                     break
 
                 # 从回放结果目录读取实际结果
+                ts = _get_latest_replay_timestamp(data_dir, case_key)
                 run_passed = _check_latest_replay_result(data_dir, case_key)
+                run_result = "passed" if run_passed else "failed"
+                run_records.append({"run": r + 1, "result": run_result, "replay_timestamp": ts})
                 if run_passed:
                     repeat_pass += 1
                 else:
@@ -538,6 +547,7 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
             except Exception as e:
                 logger.error("回放异常 %s (第 %d 次): %s", case_key, r + 1, e)
                 repeat_fail += 1
+                run_records.append({"run": r + 1, "result": "failed", "replay_timestamp": None})
 
         case_duration = round(time.time() - case_start)
 
@@ -562,11 +572,15 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
             result_entry["repeat_pass"] = repeat_pass
             result_entry["repeat_fail"] = repeat_fail
             result_entry["repeat_aborted"] = repeat_aborted
+            result_entry["runs"] = run_records
 
-        # 记录该用例最新的回放 timestamp，用于查看详细结果
-        latest_ts = _get_latest_replay_timestamp(data_dir, case_key)
-        if latest_ts:
-            result_entry["replay_timestamp"] = latest_ts
+        # 记录该用例的回放 timestamp（单轮取最新，多轮在 runs 中）
+        if repeat == 1 and run_records:
+            result_entry["replay_timestamp"] = run_records[0].get("replay_timestamp")
+        elif repeat == 1:
+            latest_ts = _get_latest_replay_timestamp(data_dir, case_key)
+            if latest_ts:
+                result_entry["replay_timestamp"] = latest_ts
 
         case_results.append(result_entry)
 
