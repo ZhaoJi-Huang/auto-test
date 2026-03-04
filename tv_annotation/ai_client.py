@@ -121,8 +121,25 @@ def chat(text, image_url=None, workflow_id=None):
         content.append({"type": "image_url", "image_url": {"url": image_url}})
     content.append({"type": "text", "text": text})
 
+    messages = [{"role": "user", "content": content}]
+    return chat_with_history(messages, workflow_id=workflow_id)
+
+
+def chat_with_history(messages, workflow_id=None):
+    """发送多轮对话请求，支持完整会话历史
+
+    Args:
+        messages: 消息列表，每项格式 {"role": "user"|"assistant", "content": ...}
+        workflow_id: 工作流 ID（可选）
+
+    Returns:
+        str: 大模型返回的文本
+
+    Raises:
+        RuntimeError: 请求失败时抛出
+    """
     data = {
-        "prompts": [{"role": "user", "content": content}],
+        "prompts": messages,
         "stream": False,
         "nohup": False,
     }
@@ -189,7 +206,10 @@ def _parse_json_response(text):
 
 
 def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=None):
-    """AI 动态导航：截图 -> 发给大模型 -> 执行按键 -> 循环直到完成
+    """AI 动态导航：截图 -> 发给大模型（含历史会话） -> 执行按键 -> 循环直到完成
+
+    每一轮的截图和 AI 响应都会作为历史消息传入下一轮，使 AI 能基于
+    完整上下文做出更准确的导航决策，避免重复操作。
 
     Args:
         prompt: 导航目标描述
@@ -205,16 +225,21 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
             "total_rounds": N
         }
     """
-    navigate_prompt_template = (
-        "你是一个 TV 遥控器操作助手。当前 TV 屏幕截图如上。\n"
-        "用户目标：{prompt}\n"
+    system_prompt = (
+        "你是一个 TV 遥控器操作助手。用户会发送 TV 屏幕截图，你需要根据截图分析当前画面并操作遥控器。\n"
+        f"用户目标：{prompt}\n"
         "可用按键：UP, DOWN, LEFT, RIGHT, ENTER, BACK, HOME\n"
-        "请分析当前画面，返回 JSON 格式：\n"
-        '{{"action": "按键名", "reason": "理由", "done": false}}\n'
-        "如果目标已完成，返回：\n"
-        '{{"action": "none", "done": true, "reason": "已完成的理由"}}\n'
-        "只返回 JSON，不要其他内容。"
+        "每次只返回一个 JSON，格式如下：\n"
+        '若需要操作：{"action": "按键名", "reason": "理由", "done": false}\n'
+        '若目标已完成：{"action": "none", "done": true, "reason": "已完成的理由"}\n'
+        "注意：\n"
+        "- 结合之前的操作历史和画面变化来判断下一步\n"
+        "- 如果发现画面没有变化或在重复，尝试不同的策略\n"
+        "- 只返回 JSON，不要其他内容"
     )
+
+    # 会话历史：system 消息 + 每轮的 user(截图) / assistant(响应)
+    messages = [{"role": "system", "content": system_prompt}]
 
     rounds = []
 
@@ -252,15 +277,24 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
             logger.info(f"AI 导航第 {i} 轮 - 图片上传耗时: {t_upload:.2f}s")
             round_info["screenshot"] = screenshot_path
 
-            # 3. 发送给大模型
+            # 3. 构建本轮 user 消息（截图 + 轮次提示）
+            user_content = [
+                {"type": "image_url", "image_url": {"url": image_url}},
+                {"type": "text", "text": f"第 {i} 轮，这是当前 TV 屏幕截图。请分析并返回下一步操作。"},
+            ]
+            messages.append({"role": "user", "content": user_content})
+
+            # 4. 发送给大模型（带完整历史）
             t0 = time.time()
-            filled_prompt = navigate_prompt_template.format(prompt=prompt)
-            response_text = chat(filled_prompt, image_url=image_url)
+            response_text = chat_with_history(messages)
             t_chat = time.time() - t0
             logger.info(f"AI 导航第 {i} 轮 - 大模型对话耗时: {t_chat:.2f}s")
             round_info["ai_response"] = response_text
 
-            # 4. 解析返回
+            # 将 AI 回复加入历史
+            messages.append({"role": "assistant", "content": response_text})
+
+            # 5. 解析返回
             logger.info(f"AI 导航第 {i} 轮原始返回: {response_text[:300]}")
             result = _parse_json_response(response_text)
             if not isinstance(result, dict):
@@ -269,7 +303,7 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
                 continue
             round_info["parsed"] = result
 
-            # 5. 检查是否完成
+            # 6. 检查是否完成
             if result.get("done"):
                 round_info["action"] = "none"
                 rounds.append(round_info)
@@ -280,16 +314,25 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
                     "total_rounds": i,
                 }
 
-            # 6. 执行按键
+            # 7. 执行按键
             action = result.get("action", "").upper()
             keycode = _AI_KEY_MAP.get(action)
             if keycode:
                 send_keyevent(device_serial, keycode)
                 round_info["action"] = action
                 logger.info(f"AI 导航第 {i} 轮: {action} - {result.get('reason')}")
+                # 将执行结果也追加到历史，让 AI 知道按键已执行
+                messages.append({
+                    "role": "user",
+                    "content": f"已执行按键 {action}，等待画面更新..."
+                })
             else:
                 round_info["error"] = f"未知按键: {action}"
                 logger.warning(f"AI 导航返回未知按键: {action}")
+                messages.append({
+                    "role": "user",
+                    "content": f"按键 {action} 无法识别，请重新分析。"
+                })
 
             # 等待画面稳定
             time.sleep(1.0)
