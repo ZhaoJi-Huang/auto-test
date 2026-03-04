@@ -312,6 +312,48 @@ def create_plan_routes(data_dir, scripts_repo_path):
     return bp
 
 
+def _get_latest_replay_timestamp(data_dir, case_key):
+    """获取用例最近一次回放的 timestamp 目录名"""
+    replay_dir = os.path.join(data_dir, "replay", case_key)
+    if not os.path.isdir(replay_dir):
+        return None
+    entries = sorted(os.listdir(replay_dir), reverse=True)
+    for entry in entries:
+        if os.path.isdir(os.path.join(replay_dir, entry)):
+            return entry
+    return None
+
+
+def _check_latest_replay_result(data_dir, case_key):
+    """检查用例最近一次回放的实际结果，返回 True=passed"""
+    ts = _get_latest_replay_timestamp(data_dir, case_key)
+    if not ts:
+        return False
+    result_dir = os.path.join(data_dir, "replay", case_key, ts)
+
+    # 先检查 summary.json（多轮）
+    summary_file = os.path.join(result_dir, "summary.json")
+    if os.path.isfile(summary_file):
+        try:
+            with open(summary_file, "r", encoding="utf-8") as f:
+                summary = json.load(f)
+            return summary.get("failed", 0) == 0 and summary.get("passed", 0) > 0
+        except Exception:
+            pass
+
+    # 再检查 result.json（单次）
+    result_file = os.path.join(result_dir, "result.json")
+    if os.path.isfile(result_file):
+        try:
+            with open(result_file, "r", encoding="utf-8") as f:
+                result = json.load(f)
+            return result.get("result") == "passed"
+        except Exception:
+            pass
+
+    return False
+
+
 def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
     """在后台线程中执行测试计划
 
@@ -448,32 +490,48 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
         case_start = time.time()
         repeat_pass = 0
         repeat_fail = 0
+        repeat_aborted = 0
         case_result = "passed"
+        was_stopped = False
 
         for r in range(repeat):
             # 检查停止
             with _plan_run_state["lock"]:
                 if _plan_run_state["stop_requested"]:
+                    was_stopped = True
+                    repeat_aborted += (repeat - r)
                     break
                 _plan_run_state["current_repeat"] = r + 1
 
             try:
-                ok, msg = engine.replay(
+                started, msg = engine.replay(
                     case_key=case_key,
                     repeat=1,
                     stop_on_failure=False,
                 )
+                if not started:
+                    logger.error("回放启动失败 %s: %s", case_key, msg)
+                    repeat_fail += 1
+                    continue
+
                 # 等待回放完成
+                stopped_mid = False
                 while engine.status.get("is_replaying", False):
                     with _plan_run_state["lock"]:
                         if _plan_run_state["stop_requested"]:
                             engine.stop()
+                            stopped_mid = True
                             break
                     time.sleep(0.5)
 
-                # 判断结果
-                status = engine.status
-                if status.get("last_result") == "passed" or ok:
+                if stopped_mid:
+                    was_stopped = True
+                    repeat_aborted += (repeat - r)
+                    break
+
+                # 从回放结果目录读取实际结果
+                run_passed = _check_latest_replay_result(data_dir, case_key)
+                if run_passed:
                     repeat_pass += 1
                 else:
                     repeat_fail += 1
@@ -483,8 +541,15 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
 
         case_duration = round(time.time() - case_start)
 
-        if repeat_fail > 0:
+        # 判定结果
+        if was_stopped and repeat_pass == 0 and repeat_fail == 0:
+            case_result = "aborted"
+        elif repeat_fail > 0:
             case_result = "failed"
+        elif was_stopped:
+            case_result = "failed"
+        else:
+            case_result = "passed"
 
         result_entry = {
             "key": case_key,
@@ -496,6 +561,12 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
             result_entry["repeat"] = repeat
             result_entry["repeat_pass"] = repeat_pass
             result_entry["repeat_fail"] = repeat_fail
+            result_entry["repeat_aborted"] = repeat_aborted
+
+        # 记录该用例最新的回放 timestamp，用于查看详细结果
+        latest_ts = _get_latest_replay_timestamp(data_dir, case_key)
+        if latest_ts:
+            result_entry["replay_timestamp"] = latest_ts
 
         case_results.append(result_entry)
 

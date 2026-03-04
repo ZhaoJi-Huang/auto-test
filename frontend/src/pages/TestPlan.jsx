@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Switch, Tag, message, Popconfirm, Progress, Descriptions, Badge, Row, Col, Tooltip } from 'antd'
-import { PlusOutlined, PlayCircleOutlined, EditOutlined, DeleteOutlined, EyeOutlined, StopOutlined, EyeInvisibleOutlined, CaretRightOutlined } from '@ant-design/icons'
-import { getPlans, getPlan, createPlan, updatePlan, deletePlan, runPlan, stopPlan, getPlanStatus, getPlanResults, getCases } from '../api'
+import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Switch, Tag, message, Popconfirm, Progress, Descriptions, Badge, Row, Col, Tooltip, Drawer, Image, Collapse, Tabs } from 'antd'
+import { PlusOutlined, PlayCircleOutlined, EditOutlined, DeleteOutlined, EyeOutlined, StopOutlined, EyeInvisibleOutlined, CaretRightOutlined, VideoCameraOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { getPlans, getPlan, createPlan, updatePlan, deletePlan, runPlan, stopPlan, getPlanStatus, getPlanResults, getCases, getReplayResult, getRunResult } from '../api'
 
 export default function TestPlan() {
   const [plans, setPlans] = useState([])
@@ -16,6 +16,9 @@ export default function TestPlan() {
   const [showProcess, setShowProcess] = useState(true)
   const [runModal, setRunModal] = useState(false)
   const [runTargetId, setRunTargetId] = useState(null)
+  const [caseDetailDrawer, setCaseDetailDrawer] = useState(false)
+  const [caseDetailData, setCaseDetailData] = useState(null)
+  const [caseDetailLoading, setCaseDetailLoading] = useState(false)
   const [form] = Form.useForm()
   const [runForm] = Form.useForm()
   const timerRef = useRef(null)
@@ -148,6 +151,38 @@ export default function TestPlan() {
     } catch (e) {
       message.error('获取结果失败')
     }
+  }
+
+  // 查看某条用例的回放详情（截图、视频、步骤）
+  const handleViewCaseDetail = async (caseKey, replayTimestamp) => {
+    if (!caseKey || !replayTimestamp) {
+      message.warning('该用例没有回放记录')
+      return
+    }
+    setCaseDetailLoading(true)
+    setCaseDetailDrawer(true)
+    try {
+      const res = await getReplayResult(caseKey, replayTimestamp)
+      const data = res.data?.data || res.data
+      setCaseDetailData({ ...data, case_key: caseKey, timestamp: replayTimestamp })
+    } catch (e) {
+      message.error('获取回放详情失败')
+      setCaseDetailData(null)
+    } finally {
+      setCaseDetailLoading(false)
+    }
+  }
+
+  // 构建截图 URL
+  const getScreenshotUrl = (screenshotPath) => {
+    if (!screenshotPath) return null
+    const parts = screenshotPath.replace(/\\/g, '/').split('/')
+    const replayIdx = parts.lastIndexOf('replay')
+    if (replayIdx < 0 || replayIdx + 3 >= parts.length) return null
+    const caseKey = parts[replayIdx + 1]
+    const timestamp = parts[replayIdx + 2]
+    const filename = parts.slice(replayIdx + 3).join('/')
+    return `/api/tv/replay/screenshot/${caseKey}/${timestamp}/${filename}`
   }
 
   const columns = [
@@ -304,7 +339,32 @@ export default function TestPlan() {
     )
   }
 
-  // 渲染结果列表（支持多次执行结果）
+  // 结果表格中用例列的通用列定义
+  const resultCaseColumns = [
+    { title: 'Key', dataIndex: 'key', width: 120 },
+    { title: '名称', dataIndex: 'name', ellipsis: true },
+    {
+      title: '结果', dataIndex: 'result', width: 100,
+      render: (v) => {
+        const colorMap = { passed: 'green', failed: 'red', no_script: 'orange', aborted: 'default' }
+        const labelMap = { passed: '通过', failed: '失败', no_script: '无脚本', aborted: '中止' }
+        return <Tag color={colorMap[v] || 'default'}>{labelMap[v] || v}</Tag>
+      }
+    },
+    { title: '耗时', dataIndex: 'duration_s', width: 80, render: (v) => v ? `${v}s` : '-' },
+    {
+      title: '重复', key: 'repeat_info', width: 100,
+      render: (_, r) => r.repeat > 1 ? `${r.repeat_pass || 0}/${r.repeat} 通过` : '-'
+    },
+    {
+      title: '详情', key: 'detail', width: 70,
+      render: (_, r) => r.replay_timestamp ? (
+        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewCaseDetail(r.key, r.replay_timestamp)} />
+      ) : '-'
+    },
+  ]
+
+  // 渲染结果列表
   const renderResultsContent = () => {
     if (!planResults || !Array.isArray(planResults) || planResults.length === 0) {
       return <div style={{ textAlign: 'center', color: '#999', padding: 24 }}>暂无执行结果</div>
@@ -325,26 +385,90 @@ export default function TestPlan() {
           dataSource={pr.cases || []}
           rowKey={(r, i) => (r.key || '') + '_' + i}
           pagination={false}
-          columns={[
-            { title: 'Key', dataIndex: 'key', width: 120 },
-            { title: '名称', dataIndex: 'name', ellipsis: true },
-            {
-              title: '结果', dataIndex: 'result', width: 100,
-              render: (v) => {
-                const colorMap = { passed: 'green', failed: 'red', no_script: 'orange', aborted: 'default' }
-                const labelMap = { passed: '通过', failed: '失败', no_script: '无脚本', aborted: '中止' }
-                return <Tag color={colorMap[v] || 'default'}>{labelMap[v] || v}</Tag>
-              }
-            },
-            { title: '耗时', dataIndex: 'duration_s', width: 80, render: (v) => v ? `${v}s` : '-' },
-            {
-              title: '重复', key: 'repeat_info', width: 100,
-              render: (_, r) => r.repeat > 1 ? `${r.repeat_pass || 0}/${r.repeat} 通过` : '-'
-            },
-          ]}
+          columns={resultCaseColumns}
         />
       </Card>
     ))
+  }
+
+  // 渲染用例回放详情抽屉内容
+  const renderCaseDetailContent = () => {
+    if (caseDetailLoading) return <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
+    if (!caseDetailData) return null
+
+    const d = caseDetailData
+    const hasVideo = d.has_video && d.video_url
+    const steps = d.steps || []
+
+    return (
+      <div>
+        {/* 基本信息 */}
+        <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
+          <Descriptions.Item label="用例">{d.jira_key || d.case_key}</Descriptions.Item>
+          <Descriptions.Item label="结果">
+            <Tag color={d.result === 'passed' ? 'green' : 'red'}>{d.result === 'passed' ? '通过' : '失败'}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="时间">{d.replay_at || ''}</Descriptions.Item>
+          <Descriptions.Item label="耗时">{d.duration_s || 0}s</Descriptions.Item>
+          {d.failed_reason && <Descriptions.Item label="失败原因" span={2}>{d.failed_reason}</Descriptions.Item>}
+        </Descriptions>
+
+        {/* 回放视频 */}
+        {hasVideo && (
+          <Card size="small" title={<><VideoCameraOutlined /> 回放视频</>} style={{ marginBottom: 16 }}>
+            <video
+              src={d.video_url}
+              controls
+              style={{ width: '100%', maxHeight: 400, background: '#000' }}
+            />
+          </Card>
+        )}
+
+        {/* 步骤列表 */}
+        {steps.length > 0 && (
+          <Card size="small" title={`步骤详情 (${steps.length} 步)`}>
+            <div style={{ maxHeight: 500, overflow: 'auto' }}>
+              {steps.map((step, i) => {
+                const isPassed = step.status === 'passed'
+                const isFailed = step.status === 'failed'
+                const screenshotUrl = getScreenshotUrl(step.screenshot)
+
+                return (
+                  <div key={i} style={{
+                    padding: '8px 12px',
+                    marginBottom: 8,
+                    border: `1px solid ${isFailed ? '#ffccc7' : isPassed ? '#d9f7be' : '#f0f0f0'}`,
+                    borderRadius: 4,
+                    background: isFailed ? '#fff2f0' : isPassed ? '#f6ffed' : '#fff',
+                  }}>
+                    <Row align="middle" gutter={8}>
+                      <Col>
+                        {isPassed ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> :
+                         isFailed ? <CloseCircleOutlined style={{ color: '#ff4d4f' }} /> :
+                         <span style={{ color: '#999' }}>○</span>}
+                      </Col>
+                      <Col>
+                        <span style={{ color: '#999' }}>{i + 1}.</span>
+                      </Col>
+                      <Col flex="auto">
+                        <span style={{ fontWeight: 500 }}>{step.summary || step.type || '步骤'}</span>
+                        {step.duration_s != null && <span style={{ color: '#999', marginLeft: 8 }}>{step.duration_s}s</span>}
+                      </Col>
+                    </Row>
+                    {step.error && <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4, marginLeft: 36 }}>{step.error}</div>}
+                    {screenshotUrl && (
+                      <div style={{ marginTop: 8, marginLeft: 36 }}>
+                        <Image src={screenshotUrl} width={300} style={{ borderRadius: 4, border: '1px solid #d9d9d9' }} />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -421,6 +545,16 @@ export default function TestPlan() {
       >
         {renderResultsContent()}
       </Modal>
+
+      {/* 用例回放详情抽屉 */}
+      <Drawer
+        title={`回放详情 ${caseDetailData?.jira_key || caseDetailData?.case_key || ''}`}
+        open={caseDetailDrawer}
+        onClose={() => { setCaseDetailDrawer(false); setCaseDetailData(null) }}
+        width={720}
+      >
+        {renderCaseDetailContent()}
+      </Drawer>
     </div>
   )
 }
