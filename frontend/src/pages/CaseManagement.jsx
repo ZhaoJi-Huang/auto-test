@@ -1,9 +1,36 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Table, Button, Space, Input, Select, Tag, Modal, Form, Drawer, message, Popconfirm, Descriptions } from 'antd'
-import { PlusOutlined, ImportOutlined, SyncOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
-import { getCases, getCase, importByJql, importByKey, syncCase, createCase, deleteCase } from '../api'
+import { PlusOutlined, ImportOutlined, SyncOutlined, DeleteOutlined, EyeOutlined, EditOutlined, CopyOutlined, MinusCircleOutlined } from '@ant-design/icons'
+import { getCases, getCase, importByJql, importByKey, syncCase, createCase, updateCase, copyCase, deleteCase } from '../api'
 
 const { Search } = Input
+
+// 测试步骤编辑组件
+function TestStepsField() {
+  return (
+    <Form.List name="test_steps">
+      {(fields, { add, remove }) => (
+        <div>
+          {fields.map(({ key, name, ...restField }) => (
+            <div key={key} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+              <span style={{ lineHeight: '32px', minWidth: 24, color: '#999' }}>{name + 1}.</span>
+              <Form.Item {...restField} name={[name, 'step']} style={{ flex: 1, marginBottom: 0 }}>
+                <Input placeholder="测试步骤" />
+              </Form.Item>
+              <Form.Item {...restField} name={[name, 'expectedResult']} style={{ flex: 1, marginBottom: 0 }}>
+                <Input placeholder="期望结果" />
+              </Form.Item>
+              <MinusCircleOutlined onClick={() => remove(name)} style={{ lineHeight: '32px', color: '#ff4d4f', cursor: 'pointer' }} />
+            </div>
+          ))}
+          <Button type="dashed" onClick={() => add({ step: '', expectedResult: '' })} block icon={<PlusOutlined />}>
+            添加步骤
+          </Button>
+        </div>
+      )}
+    </Form.List>
+  )
+}
 
 export default function CaseManagement() {
   const [cases, setCases] = useState([])
@@ -13,11 +40,14 @@ export default function CaseManagement() {
   const [jqlModal, setJqlModal] = useState(false)
   const [keyModal, setKeyModal] = useState(false)
   const [createModal, setCreateModal] = useState(false)
+  const [editModal, setEditModal] = useState(false)
+  const [editingCase, setEditingCase] = useState(null)
   const [detailDrawer, setDetailDrawer] = useState(false)
   const [caseDetail, setCaseDetail] = useState(null)
   const [jqlForm] = Form.useForm()
   const [keyForm] = Form.useForm()
   const [createForm] = Form.useForm()
+  const [editForm] = Form.useForm()
 
   const fetchCases = async () => {
     setLoading(true)
@@ -73,6 +103,10 @@ export default function CaseManagement() {
 
   const handleCreate = async (values) => {
     try {
+      // 过滤掉空步骤
+      if (values.test_steps) {
+        values.test_steps = values.test_steps.filter(s => s.step || s.expectedResult)
+      }
       await createCase(values)
       message.success('用例创建成功')
       setCreateModal(false)
@@ -80,6 +114,49 @@ export default function CaseManagement() {
       fetchCases()
     } catch (e) {
       message.error('创建失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
+  const handleEdit = async (key) => {
+    try {
+      const res = await getCase(key)
+      const data = res.data?.data || res.data
+      setEditingCase(data)
+      editForm.setFieldsValue({
+        name: data.name || data.summary || '',
+        description: data.description || '',
+        precondition: data.precondition || '',
+        test_steps: data.test_steps?.length ? data.test_steps : [],
+      })
+      setEditModal(true)
+    } catch (e) {
+      message.error('获取用例详情失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
+  const handleEditSubmit = async (values) => {
+    try {
+      if (values.test_steps) {
+        values.test_steps = values.test_steps.filter(s => s.step || s.expectedResult)
+      }
+      await updateCase(editingCase.key, values)
+      message.success('用例已更新')
+      setEditModal(false)
+      setEditingCase(null)
+      editForm.resetFields()
+      fetchCases()
+    } catch (e) {
+      message.error('更新失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
+  const handleCopy = async (key) => {
+    try {
+      const res = await copyCase(key)
+      message.success(res.data?.message || '复制成功')
+      fetchCases()
+    } catch (e) {
+      message.error('复制失败: ' + (e.response?.data?.error || e.message))
     }
   }
 
@@ -124,10 +201,12 @@ export default function CaseManagement() {
       }
     },
     {
-      title: '操作', key: 'action', width: 200,
+      title: '操作', key: 'action', width: 260,
       render: (_, record) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.key)}>详情</Button>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.key)}>编辑</Button>
+          <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record.key)}>复制</Button>
           {record.source === 'jira' && (
             <Button type="link" size="small" icon={<SyncOutlined />} onClick={() => handleSync(record.key)}>同步</Button>
           )}
@@ -138,6 +217,74 @@ export default function CaseManagement() {
       )
     },
   ]
+
+  // 详情抽屉中格式化展示
+  const renderDetailContent = () => {
+    if (!caseDetail) return null
+    const d = caseDetail
+    const isJira = d.source === 'jira'
+
+    return (
+      <div>
+        <Descriptions column={1} bordered size="small">
+          <Descriptions.Item label="Key">{d.key}</Descriptions.Item>
+          <Descriptions.Item label="名称">{d.name || d.summary || ''}</Descriptions.Item>
+          <Descriptions.Item label="来源">
+            <Tag color={isJira ? 'blue' : 'orange'}>{isJira ? 'Jira' : '自定义'}</Tag>
+          </Descriptions.Item>
+          {d.priority && <Descriptions.Item label="优先级">{d.priority}</Descriptions.Item>}
+          {d.description && <Descriptions.Item label="描述">{d.description}</Descriptions.Item>}
+          {d.precondition && <Descriptions.Item label="前置条件">{d.precondition}</Descriptions.Item>}
+          {d.created_at && <Descriptions.Item label="创建时间">{d.created_at}</Descriptions.Item>}
+          {d.updated_at && <Descriptions.Item label="更新时间">{d.updated_at}</Descriptions.Item>}
+        </Descriptions>
+
+        {d.test_steps && d.test_steps.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <h4>测试步骤</h4>
+            <Table
+              dataSource={d.test_steps.map((s, i) => ({ ...s, _idx: i }))}
+              rowKey="_idx"
+              size="small"
+              pagination={false}
+              columns={[
+                { title: '序号', width: 60, render: (_, __, i) => i + 1 },
+                { title: '步骤', dataIndex: 'step', key: 'step' },
+                { title: '期望结果', dataIndex: 'expectedResult', key: 'expectedResult' },
+              ]}
+            />
+          </div>
+        )}
+
+        {d.recorded_steps && d.recorded_steps.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <h4>录制步骤 ({d.recorded_steps.length} 步)</h4>
+            <pre style={{ fontSize: 12, maxHeight: 300, overflow: 'auto', background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
+              {JSON.stringify(d.recorded_steps, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 用例表单字段（创建和编辑共用）
+  const renderCaseFormFields = (isEdit = false) => (
+    <>
+      <Form.Item label="用例名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
+        <Input placeholder="用例名称" disabled={isEdit && editingCase?.source === 'jira'} />
+      </Form.Item>
+      <Form.Item label="描述" name="description">
+        <Input.TextArea rows={2} placeholder="用例描述" disabled={isEdit && editingCase?.source === 'jira'} />
+      </Form.Item>
+      <Form.Item label="前置条件" name="precondition">
+        <Input.TextArea rows={2} placeholder="前置条件" />
+      </Form.Item>
+      <Form.Item label="测试步骤">
+        <TestStepsField />
+      </Form.Item>
+    </>
+  )
 
   return (
     <div>
@@ -187,27 +334,29 @@ export default function CaseManagement() {
         </Form>
       </Modal>
 
-      <Modal title="新建用例" open={createModal} onCancel={() => setCreateModal(false)} onOk={() => createForm.submit()} destroyOnClose>
+      {/* 新建用例 */}
+      <Modal title="新建用例" open={createModal} onCancel={() => setCreateModal(false)} onOk={() => createForm.submit()} destroyOnClose width={640}>
         <Form form={createForm} onFinish={handleCreate} layout="vertical">
-          <Form.Item label="用例名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="用例名称" />
-          </Form.Item>
-          <Form.Item label="描述" name="description">
-            <Input.TextArea rows={3} placeholder="用例描述" />
-          </Form.Item>
+          {renderCaseFormFields(false)}
+        </Form>
+      </Modal>
+
+      {/* 编辑用例 */}
+      <Modal
+        title={`编辑用例 ${editingCase?.key || ''}`}
+        open={editModal}
+        onCancel={() => { setEditModal(false); setEditingCase(null); editForm.resetFields() }}
+        onOk={() => editForm.submit()}
+        destroyOnClose
+        width={640}
+      >
+        <Form form={editForm} onFinish={handleEditSubmit} layout="vertical">
+          {renderCaseFormFields(true)}
         </Form>
       </Modal>
 
       <Drawer title="用例详情" open={detailDrawer} onClose={() => setDetailDrawer(false)} width={600}>
-        {caseDetail && (
-          <Descriptions column={1} bordered size="small">
-            {Object.entries(caseDetail).map(([k, v]) => (
-              <Descriptions.Item key={k} label={k}>
-                {typeof v === 'object' ? <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(v, null, 2)}</pre> : String(v ?? '')}
-              </Descriptions.Item>
-            ))}
-          </Descriptions>
-        )}
+        {renderDetailContent()}
       </Drawer>
     </div>
   )

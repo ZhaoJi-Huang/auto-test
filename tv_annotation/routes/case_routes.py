@@ -321,6 +321,8 @@ def create_case_routes(data_dir, scripts_repo_path):
             "source": "custom",
             "name": data["name"].strip(),
             "description": data.get("description", "").strip(),
+            "precondition": data.get("precondition", "").strip(),
+            "test_steps": data.get("test_steps") or [],
             "created_at": now,
             "created_by": socket.gethostname(),
         }
@@ -333,6 +335,87 @@ def create_case_routes(data_dir, scripts_repo_path):
             "success": True,
             "message": f"自定义用例 {key} 已创建",
             "data": case,
+        })
+
+    # ========== 编辑用例 ==========
+
+    @bp.route("/api/tv/cases/<key>", methods=["PUT"])
+    def update_case(key):
+        """编辑用例（仅自定义用例可编辑全部字段，Jira 用例仅可编辑补充字段）"""
+        existing = _load_case(scripts_repo_path, key)
+        if not existing:
+            return jsonify({"success": False, "error": f"用例 {key} 不存在"}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "请求体为空"}), 400
+
+        # 可编辑字段
+        if existing.get("source") == "custom":
+            if "name" in data:
+                existing["name"] = data["name"].strip()
+            if "description" in data:
+                existing["description"] = data.get("description", "").strip()
+        # 通用可编辑字段
+        if "precondition" in data:
+            existing["precondition"] = data.get("precondition", "").strip()
+        if "test_steps" in data:
+            existing["test_steps"] = data.get("test_steps") or []
+
+        existing["updated_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+        _save_case(scripts_repo_path, key, existing)
+        entry = _build_index_entry(scripts_repo_path, existing)
+        update_index_entry(scripts_repo_path, entry)
+
+        return jsonify({
+            "success": True,
+            "message": f"用例 {key} 已更新",
+            "data": existing,
+        })
+
+    # ========== 复制用例 ==========
+
+    @bp.route("/api/tv/cases/<key>/copy", methods=["POST"])
+    def copy_case(key):
+        """复制用例为新的自定义用例"""
+        existing = _load_case(scripts_repo_path, key)
+        if not existing:
+            return jsonify({"success": False, "error": f"用例 {key} 不存在"}), 404
+
+        new_key = _next_local_key(scripts_repo_path)
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+        # 构建新用例，复制关键字段
+        new_case = {
+            "key": new_key,
+            "source": "custom",
+            "name": (existing.get("name") or existing.get("summary", "")) + " (副本)",
+            "description": existing.get("description", ""),
+            "precondition": existing.get("precondition", ""),
+            "test_steps": existing.get("test_steps") or [],
+            "created_at": now,
+            "created_by": socket.gethostname(),
+        }
+
+        _save_case(scripts_repo_path, new_key, new_case)
+        entry = _build_index_entry(scripts_repo_path, new_case)
+        update_index_entry(scripts_repo_path, entry)
+
+        # 同时复制录制步骤（如果有的话）
+        src_steps = os.path.join(scripts_repo_path, key, "steps.json")
+        if os.path.exists(src_steps):
+            import shutil
+            dst_steps = os.path.join(scripts_repo_path, new_key, "steps.json")
+            shutil.copy2(src_steps, dst_steps)
+            # 更新索引中的录制状态
+            entry["has_recording"] = True
+            update_index_entry(scripts_repo_path, entry)
+
+        return jsonify({
+            "success": True,
+            "message": f"用例已复制为 {new_key}",
+            "data": new_case,
         })
 
     # ========== 删除用例 ==========

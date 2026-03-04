@@ -16,6 +16,8 @@ export const importByJql = (jql) => api.post('/api/tv/cases/import/jql', { jql }
 export const importByKey = (key) => api.post('/api/tv/cases/import/key', { key })
 export const syncCase = (key) => api.post(`/api/tv/cases/sync/${key}`)
 export const createCase = (data) => api.post('/api/tv/cases/create', data)
+export const updateCase = (key, data) => api.put(`/api/tv/cases/${key}`, data)
+export const copyCase = (key) => api.post(`/api/tv/cases/${key}/copy`)
 export const deleteCase = (key) => api.delete(`/api/tv/cases/${key}`)
 
 // Jira 配置
