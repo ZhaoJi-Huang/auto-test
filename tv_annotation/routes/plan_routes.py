@@ -19,10 +19,19 @@ logger = logging.getLogger(__name__)
 # 计划执行状态（全局，线程安全）
 _plan_run_state = {
     "is_running": False,
+    "stop_requested": False,
     "plan_id": None,
+    "plan_name": "",
     "current_case": 0,
     "total_cases": 0,
     "current_case_key": "",
+    "current_case_name": "",
+    "current_repeat": 0,
+    "total_repeat": 0,
+    # 当前用例回放引擎的步骤级状态
+    "replay_status": None,
+    # 已完成用例的简要结果
+    "case_results": [],
     "lock": threading.Lock(),
 }
 
@@ -76,6 +85,18 @@ def create_plan_routes(data_dir, scripts_repo_path):
         path = _plan_path(plan_id)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(plan_data, f, ensure_ascii=False, indent=2)
+
+    def _get_case_name(case_key):
+        """获取用例名称"""
+        case_path = os.path.join(scripts_repo_path, case_key, "case.json")
+        if os.path.exists(case_path):
+            try:
+                with open(case_path, "r", encoding="utf-8") as f:
+                    case_data = json.load(f)
+                return case_data.get("name") or case_data.get("summary", "")
+            except Exception:
+                pass
+        return ""
 
     # ------------------------------------------------------------------
     # GET /api/tv/plans — 获取所有计划列表
@@ -179,6 +200,9 @@ def create_plan_routes(data_dir, scripts_repo_path):
         if plan is None:
             return jsonify({"success": False, "error": f"计划 {plan_id} 不存在"}), 404
 
+        body = request.get_json() or {}
+        repeat = max(int(body.get("repeat", 1)), 1)
+
         with _plan_run_state["lock"]:
             if _plan_run_state["is_running"]:
                 return jsonify({
@@ -187,14 +211,21 @@ def create_plan_routes(data_dir, scripts_repo_path):
                 }), 409
 
             _plan_run_state["is_running"] = True
+            _plan_run_state["stop_requested"] = False
             _plan_run_state["plan_id"] = plan_id
+            _plan_run_state["plan_name"] = plan.get("name", "")
             _plan_run_state["current_case"] = 0
             _plan_run_state["total_cases"] = len(plan.get("cases", []))
             _plan_run_state["current_case_key"] = ""
+            _plan_run_state["current_case_name"] = ""
+            _plan_run_state["current_repeat"] = 0
+            _plan_run_state["total_repeat"] = repeat
+            _plan_run_state["replay_status"] = None
+            _plan_run_state["case_results"] = []
 
         thread = threading.Thread(
             target=_execute_plan,
-            args=(plan, data_dir, scripts_repo_path),
+            args=(plan, repeat, data_dir, scripts_repo_path),
             daemon=True,
         )
         thread.start()
@@ -202,18 +233,58 @@ def create_plan_routes(data_dir, scripts_repo_path):
         return jsonify({"success": True, "message": "计划执行已启动"})
 
     # ------------------------------------------------------------------
+    # POST /api/tv/plans/<plan_id>/stop — 停止执行
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/plans/<plan_id>/stop", methods=["POST"])
+    def stop_plan(plan_id):
+        with _plan_run_state["lock"]:
+            if not _plan_run_state["is_running"] or _plan_run_state["plan_id"] != plan_id:
+                return jsonify({"success": False, "error": "该计划未在执行中"}), 400
+            _plan_run_state["stop_requested"] = True
+
+        # 同时停止当前正在运行的回放引擎
+        try:
+            from tv_annotation.routes.replay_routes import get_shared_replay_engine
+            engine = get_shared_replay_engine()
+            if engine:
+                engine.stop()
+        except Exception as e:
+            logger.warning("停止回放引擎失败: %s", e)
+
+        return jsonify({"success": True, "message": "正在停止..."})
+
+    # ------------------------------------------------------------------
     # GET /api/tv/plans/<plan_id>/status — 获取计划执行状态
     # ------------------------------------------------------------------
     @bp.route("/api/tv/plans/<plan_id>/status", methods=["GET"])
     def plan_status(plan_id):
         with _plan_run_state["lock"]:
+            is_running = _plan_run_state["is_running"] and _plan_run_state["plan_id"] == plan_id
+
+            # 实时获取回放引擎状态
+            replay_status = None
+            if is_running:
+                try:
+                    from tv_annotation.routes.replay_routes import get_shared_replay_engine
+                    engine = get_shared_replay_engine()
+                    if engine:
+                        replay_status = engine.status
+                except Exception:
+                    pass
+
             return jsonify({
                 "success": True,
                 "data": {
-                    "is_running": _plan_run_state["is_running"] and _plan_run_state["plan_id"] == plan_id,
+                    "is_running": is_running,
+                    "plan_name": _plan_run_state["plan_name"],
                     "current_case": _plan_run_state["current_case"],
                     "total_cases": _plan_run_state["total_cases"],
                     "current_case_key": _plan_run_state["current_case_key"],
+                    "current_case_name": _plan_run_state["current_case_name"],
+                    "current_repeat": _plan_run_state["current_repeat"],
+                    "total_repeat": _plan_run_state["total_repeat"],
+                    "replay_status": replay_status,
+                    "case_results": list(_plan_run_state["case_results"]),
                 }
             })
 
@@ -241,30 +312,41 @@ def create_plan_routes(data_dir, scripts_repo_path):
     return bp
 
 
-def _execute_plan(plan, data_dir, scripts_repo_path):
+def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
     """在后台线程中执行测试计划
 
     Args:
         plan: 计划数据字典
+        repeat: 每个用例重复执行次数
         data_dir: 数据根目录
         scripts_repo_path: 脚本仓库路径
     """
     plan_id = plan["id"]
-    cases = plan.get("cases", [])
+    raw_cases = plan.get("cases", [])
     stop_on_failure = plan.get("stop_on_failure", False)
+
+    # 兼容 cases 为字符串数组或对象数组
+    cases = []
+    for c in raw_cases:
+        if isinstance(c, str):
+            cases.append({"key": c})
+        elif isinstance(c, dict):
+            cases.append(c)
+        else:
+            continue
 
     run_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_dir = os.path.join(data_dir, "replay", "plans", plan_id, timestamp)
     os.makedirs(result_dir, exist_ok=True)
 
-    # 延迟导入回放引擎（可能尚未实现）
-    replay_engine = None
+    # 获取共享回放引擎
+    engine = None
     try:
-        from tv_annotation.replay_engine import ReplayEngine
-        replay_engine = ReplayEngine
-    except ImportError:
-        logger.warning("回放引擎未实现，计划执行将标记用例为 engine_unavailable")
+        from tv_annotation.routes.replay_routes import get_shared_replay_engine
+        engine = get_shared_replay_engine()
+    except Exception as e:
+        logger.warning("获取回放引擎失败: %s", e)
 
     # 延迟导入 ADB 工具
     try:
@@ -293,34 +375,65 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
     aborted = 0
     plan_start = time.time()
 
+    def _get_case_name(case_key):
+        case_path = os.path.join(scripts_repo_path, case_key, "case.json")
+        if os.path.exists(case_path):
+            try:
+                with open(case_path, "r", encoding="utf-8") as f:
+                    case_data = json.load(f)
+                return case_data.get("name") or case_data.get("summary", "")
+            except Exception:
+                pass
+        return ""
+
     for idx, case_entry in enumerate(cases):
+        # 检查是否请求停止
+        with _plan_run_state["lock"]:
+            if _plan_run_state["stop_requested"]:
+                # 剩余用例标记为 aborted
+                for remaining in cases[idx:]:
+                    case_results.append({
+                        "key": remaining.get("key", ""),
+                        "result": "aborted",
+                        "duration_s": 0,
+                    })
+                    aborted += 1
+                break
+
         case_key = case_entry.get("key", "")
-        repeat = case_entry.get("repeat", 1)
+        case_name = _get_case_name(case_key)
 
         with _plan_run_state["lock"]:
             _plan_run_state["current_case"] = idx + 1
             _plan_run_state["current_case_key"] = case_key
+            _plan_run_state["current_case_name"] = case_name
 
         # 检查脚本是否存在
-        case_dir = os.path.join(scripts_repo_path, case_key)
-        steps_file = os.path.join(case_dir, "steps.json")
+        case_dir_path = os.path.join(scripts_repo_path, case_key)
+        steps_file = os.path.join(case_dir_path, "steps.json")
         if not os.path.exists(steps_file):
             case_results.append({
                 "key": case_key,
+                "name": case_name,
                 "result": "no_script",
                 "duration_s": 0,
             })
             no_script += 1
+            with _plan_run_state["lock"]:
+                _plan_run_state["case_results"] = list(case_results)
             continue
 
         # 回放引擎不可用
-        if replay_engine is None:
+        if engine is None:
             case_results.append({
                 "key": case_key,
+                "name": case_name,
                 "result": "engine_unavailable",
                 "duration_s": 0,
             })
             aborted += 1
+            with _plan_run_state["lock"]:
+                _plan_run_state["case_results"] = list(case_results)
             continue
 
         # 按 HOME 键重置
@@ -331,21 +444,36 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
             except Exception as e:
                 logger.warning("发送 HOME 键失败: %s", e)
 
-        # 执行回放（支持 repeat）
+        # 使用共享回放引擎执行（支持 repeat）
         case_start = time.time()
         repeat_pass = 0
         repeat_fail = 0
         case_result = "passed"
 
         for r in range(repeat):
+            # 检查停止
+            with _plan_run_state["lock"]:
+                if _plan_run_state["stop_requested"]:
+                    break
+                _plan_run_state["current_repeat"] = r + 1
+
             try:
-                engine = replay_engine(
-                    device_serial=device_serial,
-                    scripts_repo_path=scripts_repo_path,
-                    data_dir=data_dir,
+                ok, msg = engine.replay(
+                    case_key=case_key,
+                    repeat=1,
+                    stop_on_failure=False,
                 )
-                ok, msg = engine.replay(case_key)
-                if ok:
+                # 等待回放完成
+                while engine.status.get("is_replaying", False):
+                    with _plan_run_state["lock"]:
+                        if _plan_run_state["stop_requested"]:
+                            engine.stop()
+                            break
+                    time.sleep(0.5)
+
+                # 判断结果
+                status = engine.status
+                if status.get("last_result") == "passed" or ok:
                     repeat_pass += 1
                 else:
                     repeat_fail += 1
@@ -360,6 +488,7 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
 
         result_entry = {
             "key": case_key,
+            "name": case_name,
             "result": case_result,
             "duration_s": case_duration,
         }
@@ -370,6 +499,9 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
 
         case_results.append(result_entry)
 
+        with _plan_run_state["lock"]:
+            _plan_run_state["case_results"] = list(case_results)
+
         if case_result == "passed":
             passed += 1
         else:
@@ -377,14 +509,16 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
 
         # 失败且 stop_on_failure → 中止后续用例
         if case_result == "failed" and stop_on_failure:
-            # 剩余用例标记为 aborted
             for remaining in cases[idx + 1:]:
                 case_results.append({
                     "key": remaining.get("key", ""),
+                    "name": _get_case_name(remaining.get("key", "")),
                     "result": "aborted",
                     "duration_s": 0,
                 })
                 aborted += 1
+            with _plan_run_state["lock"]:
+                _plan_run_state["case_results"] = list(case_results)
             break
 
     total_duration = round(time.time() - plan_start)
@@ -399,6 +533,7 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
         "finished_at": finished_at,
         "total_duration_s": total_duration,
         "total_cases": total_cases,
+        "repeat": repeat,
         "passed": passed,
         "failed": failed,
         "no_script": no_script,
@@ -419,7 +554,14 @@ def _execute_plan(plan, data_dir, scripts_repo_path):
     # 重置执行状态
     with _plan_run_state["lock"]:
         _plan_run_state["is_running"] = False
+        _plan_run_state["stop_requested"] = False
         _plan_run_state["plan_id"] = None
+        _plan_run_state["plan_name"] = ""
         _plan_run_state["current_case"] = 0
         _plan_run_state["total_cases"] = 0
         _plan_run_state["current_case_key"] = ""
+        _plan_run_state["current_case_name"] = ""
+        _plan_run_state["current_repeat"] = 0
+        _plan_run_state["total_repeat"] = 0
+        _plan_run_state["replay_status"] = None
+        _plan_run_state["case_results"] = []
