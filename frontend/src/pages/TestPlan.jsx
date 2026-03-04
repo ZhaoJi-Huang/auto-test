@@ -1,7 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Switch, Tag, message, Popconfirm, Progress, Descriptions, Badge, Row, Col, Tooltip, Drawer, Image, Collapse, Tabs } from 'antd'
-import { PlusOutlined, PlayCircleOutlined, EditOutlined, DeleteOutlined, EyeOutlined, StopOutlined, EyeInvisibleOutlined, CaretRightOutlined, VideoCameraOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Switch, Tag, message, Popconfirm, Progress, Descriptions, Badge, Row, Col, Tooltip, Drawer, Image, Collapse, Statistic, Timeline } from 'antd'
+import { PlusOutlined, PlayCircleOutlined, EditOutlined, DeleteOutlined, EyeOutlined, StopOutlined, EyeInvisibleOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { getPlans, getPlan, createPlan, updatePlan, deletePlan, runPlan, stopPlan, getPlanStatus, getPlanResults, getCases, getReplayResult, getRunResult } from '../api'
+
+// --- 复用回放页面的展示组件 ---
+const stepTypeLabels = {
+  key_group: '按键操作',
+  adb_command: 'ADB 命令',
+  ai_navigate: 'AI 导航',
+  ai_verify: 'AI 验证',
+  wait: '等待',
+}
+
+const statusConfig = {
+  passed: { color: 'success', icon: <CheckCircleOutlined />, text: '通过', tagColor: 'green' },
+  failed: { color: 'error', icon: <CloseCircleOutlined />, text: '失败', tagColor: 'red' },
+  warning: { color: 'warning', icon: <WarningOutlined />, text: '警告', tagColor: 'orange' },
+}
+
+function StatusTag({ status }) {
+  const cfg = statusConfig[status] || { tagColor: 'default', text: status || '-' }
+  return <Tag color={cfg.tagColor} icon={cfg.icon}>{cfg.text}</Tag>
+}
+
+// 截图 URL 构建
+const getScreenshotUrl = (screenshotPath) => {
+  if (!screenshotPath) return null
+  const parts = screenshotPath.replace(/\\/g, '/').split('/')
+  const replayIdx = parts.lastIndexOf('replay')
+  if (replayIdx < 0 || replayIdx + 3 >= parts.length) return null
+  const caseKey = parts[replayIdx + 1]
+  const timestamp = parts[replayIdx + 2]
+  const filename = parts.slice(replayIdx + 3).join('/')
+  return `/api/tv/replay/screenshot/${caseKey}/${timestamp}/${filename}`
+}
 
 export default function TestPlan() {
   const [plans, setPlans] = useState([])
@@ -19,6 +51,9 @@ export default function TestPlan() {
   const [caseDetailDrawer, setCaseDetailDrawer] = useState(false)
   const [caseDetailData, setCaseDetailData] = useState(null)
   const [caseDetailLoading, setCaseDetailLoading] = useState(false)
+  const [selectedRun, setSelectedRun] = useState(null)
+  const [runDetailData, setRunDetailData] = useState(null)
+  const [runDetailLoading, setRunDetailLoading] = useState(false)
   const [form] = Form.useForm()
   const [runForm] = Form.useForm()
   const timerRef = useRef(null)
@@ -170,6 +205,22 @@ export default function TestPlan() {
       setCaseDetailData(null)
     } finally {
       setCaseDetailLoading(false)
+    }
+  }
+
+  // 查看多轮结果中某一轮的详情
+  const handleViewRunDetail = async (runIndex) => {
+    if (!caseDetailData) return
+    setSelectedRun(runIndex)
+    setRunDetailLoading(true)
+    try {
+      const res = await getRunResult(caseDetailData.case_key, caseDetailData.timestamp, runIndex)
+      setRunDetailData(res.data?.data || res.data)
+    } catch (e) {
+      message.error('获取轮次详情失败')
+      setRunDetailData(null)
+    } finally {
+      setRunDetailLoading(false)
     }
   }
 
@@ -391,84 +442,284 @@ export default function TestPlan() {
     ))
   }
 
-  // 渲染用例回放详情抽屉内容
-  const renderCaseDetailContent = () => {
-    if (caseDetailLoading) return <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
-    if (!caseDetailData) return null
-
-    const d = caseDetailData
-    const hasVideo = d.has_video && d.video_url
-    const steps = d.steps || []
-
+  // --- 步骤类型详情渲染（与回放页面一致） ---
+  const renderKeyGroupInfo = (step) => {
+    const commands = step.commands || []
+    const intervalMs = step.interval_ms || 0
+    if (commands.length === 0) return null
+    const isSingleKey = commands.length === 1
+    const cmd = commands[0] || {}
+    if (isSingleKey) {
+      if (cmd.is_long_press) {
+        return (
+          <div style={{ padding: '8px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #d6e4ff', fontSize: 13 }}>
+            <span style={{ fontWeight: 500 }}>长按</span>{' '}
+            <Tag color="blue" style={{ margin: '0 4px' }}>{cmd.key}</Tag>
+            <span style={{ color: '#666' }}>{cmd.duration_ms ? `${(cmd.duration_ms / 1000).toFixed(1)}s` : ''}</span>
+          </div>
+        )
+      }
+      return (
+        <div style={{ padding: '8px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #d6e4ff', fontSize: 13 }}>
+          <span style={{ fontWeight: 500 }}>按键</span>{' '}
+          <Tag color="blue" style={{ margin: '0 4px' }}>{cmd.key}</Tag>
+        </div>
+      )
+    }
+    const keyNames = commands.map(c => c.key)
+    const allSame = keyNames.every(k => k === keyNames[0])
     return (
-      <div>
-        {/* 基本信息 */}
-        <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
-          <Descriptions.Item label="用例">{d.jira_key || d.case_key}</Descriptions.Item>
-          <Descriptions.Item label="结果">
-            <Tag color={d.result === 'passed' ? 'green' : 'red'}>{d.result === 'passed' ? '通过' : '失败'}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="时间">{d.replay_at || ''}</Descriptions.Item>
-          <Descriptions.Item label="耗时">{d.duration_s || 0}s</Descriptions.Item>
-          {d.failed_reason && <Descriptions.Item label="失败原因" span={2}>{d.failed_reason}</Descriptions.Item>}
-        </Descriptions>
-
-        {/* 回放视频 */}
-        {hasVideo && (
-          <Card size="small" title={<><VideoCameraOutlined /> 回放视频</>} style={{ marginBottom: 16 }}>
-            <video
-              src={d.video_url}
-              controls
-              style={{ width: '100%', maxHeight: 400, background: '#000' }}
-            />
-          </Card>
+      <div style={{ padding: '8px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #d6e4ff', fontSize: 13 }}>
+        {allSame ? (
+          <><span style={{ fontWeight: 500 }}>连续按</span>{' '}<Tag color="blue" style={{ margin: '0 4px' }}>{keyNames[0]}</Tag><span style={{ color: '#666' }}>× {commands.length} 次</span></>
+        ) : (
+          <><span style={{ fontWeight: 500 }}>组合按键</span>{' '}{commands.map((c, i) => (
+            <span key={i}><Tag color={c.is_long_press ? 'orange' : 'blue'} style={{ margin: '0 2px' }}>{c.key}{c.is_long_press ? ` (长按${c.duration_ms ? (c.duration_ms/1000).toFixed(1)+'s' : ''})` : ''}</Tag>{i < commands.length - 1 && <span style={{ color: '#ccc', margin: '0 2px' }}>→</span>}</span>
+          ))}</>
         )}
+        {intervalMs > 0 && <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>间隔 {intervalMs}ms</span>}
+      </div>
+    )
+  }
 
-        {/* 步骤列表 */}
-        {steps.length > 0 && (
-          <Card size="small" title={`步骤详情 (${steps.length} 步)`}>
-            <div style={{ maxHeight: 500, overflow: 'auto' }}>
-              {steps.map((step, i) => {
-                const isPassed = step.status === 'passed'
-                const isFailed = step.status === 'failed'
-                const screenshotUrl = getScreenshotUrl(step.screenshot)
-
-                return (
-                  <div key={i} style={{
-                    padding: '8px 12px',
-                    marginBottom: 8,
-                    border: `1px solid ${isFailed ? '#ffccc7' : isPassed ? '#d9f7be' : '#f0f0f0'}`,
-                    borderRadius: 4,
-                    background: isFailed ? '#fff2f0' : isPassed ? '#f6ffed' : '#fff',
-                  }}>
-                    <Row align="middle" gutter={8}>
-                      <Col>
-                        {isPassed ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> :
-                         isFailed ? <CloseCircleOutlined style={{ color: '#ff4d4f' }} /> :
-                         <span style={{ color: '#999' }}>○</span>}
-                      </Col>
-                      <Col>
-                        <span style={{ color: '#999' }}>{i + 1}.</span>
-                      </Col>
-                      <Col flex="auto">
-                        <span style={{ fontWeight: 500 }}>{step.summary || step.type || '步骤'}</span>
-                        {step.duration_s != null && <span style={{ color: '#999', marginLeft: 8 }}>{step.duration_s}s</span>}
-                      </Col>
-                    </Row>
-                    {step.error && <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4, marginLeft: 36 }}>{step.error}</div>}
-                    {screenshotUrl && (
-                      <div style={{ marginTop: 8, marginLeft: 36 }}>
-                        <Image src={screenshotUrl} width={300} style={{ borderRadius: 4, border: '1px solid #d9d9d9' }} />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </Card>
+  const renderAiNavigateInfo = (step) => {
+    const rounds = step.rounds || []
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {step.prompt && (
+          <div style={{ padding: '8px 12px', background: '#f9f0ff', borderRadius: 6, border: '1px solid #d3adf7', fontSize: 13 }}>
+            <span style={{ fontWeight: 500, color: '#722ed1' }}>指令：</span>{step.prompt}
+          </div>
+        )}
+        {rounds.length > 0 && (
+          <div style={{ padding: '8px 12px', background: '#f6ffed', borderRadius: 6, border: '1px solid #b7eb8f', fontSize: 13 }}>
+            <div style={{ fontWeight: 500, marginBottom: 6, color: '#389e0d' }}>AI 执行过程（共 {rounds.length} 轮）</div>
+            {rounds.map((r, i) => {
+              const parsed = r.parsed || {}
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', borderTop: i > 0 ? '1px solid #e8f5e0' : 'none' }}>
+                  <Tag style={{ margin: 0, minWidth: 44, textAlign: 'center' }}>{`#${r.round || i + 1}`}</Tag>
+                  {parsed.action && parsed.action !== 'none' && <Tag color="blue" style={{ margin: 0 }}>{parsed.action}</Tag>}
+                  {parsed.done && <Tag color="green" style={{ margin: 0 }}>完成</Tag>}
+                  {parsed.reason && <span style={{ color: '#666', fontSize: 12 }}>{parsed.reason}</span>}
+                  {r.error && <span style={{ color: '#f5222d', fontSize: 12 }}>{r.error}</span>}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     )
+  }
+
+  const renderAdbCommandInfo = (step) => (
+    <div style={{ padding: '8px 12px', background: '#f5f5f5', borderRadius: 6, border: '1px solid #e8e8e8', fontSize: 13 }}>
+      {step.description && <div style={{ fontWeight: 500, marginBottom: 4 }}>{step.description}</div>}
+      <code style={{ color: '#d46b08', fontSize: 12, wordBreak: 'break-all' }}>{step.command}</code>
+      {step.output && <div style={{ marginTop: 4, color: '#666', fontSize: 12, whiteSpace: 'pre-wrap' }}>{step.output}</div>}
+    </div>
+  )
+
+  const renderAiVerifyInfo = (step) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {step.prompt && (
+        <div style={{ padding: '8px 12px', background: '#f9f0ff', borderRadius: 6, border: '1px solid #d3adf7', fontSize: 13 }}>
+          <span style={{ fontWeight: 500, color: '#722ed1' }}>校验条件：</span>{step.prompt}
+        </div>
+      )}
+      {step.ai_reason && (
+        <div style={{ padding: '8px 12px', borderRadius: 6, fontSize: 13, background: step.ai_passed ? '#f6ffed' : '#fff2f0', border: `1px solid ${step.ai_passed ? '#b7eb8f' : '#ffccc7'}` }}>
+          <span style={{ fontWeight: 500 }}>AI 判断：</span>{step.ai_reason}
+          {step.ai_confidence != null && <span style={{ marginLeft: 8, color: '#999' }}>置信度: {(step.ai_confidence * 100).toFixed(0)}%</span>}
+        </div>
+      )}
+    </div>
+  )
+
+  const renderStepDetail = (step, index) => {
+    const screenshotUrl = getScreenshotUrl(step.screenshot)
+    return (
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ flexShrink: 0 }}>
+          {screenshotUrl ? (
+            <Image src={screenshotUrl} alt={`步骤 ${index + 1} 截图`} width={320} style={{ borderRadius: 4, border: '1px solid #f0f0f0' }}
+              placeholder={<div style={{ width: 320, height: 180, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>加载中...</div>}
+              fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZpbGw9IiM5OTkiIGZvbnQtc2l6ZT0iMTQiPuaXoOaIquWbvjwvdGV4dD48L3N2Zz4="
+            />
+          ) : (
+            <div style={{ width: 320, height: 180, background: '#fafafa', borderRadius: 4, border: '1px dashed #d9d9d9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb' }}>无截图</div>
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Space size="middle">
+            <StatusTag status={step.status} />
+            <Tag>{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+            {step.duration_s != null && (
+              <span style={{ color: '#999', fontSize: 13 }}><ClockCircleOutlined style={{ marginRight: 4 }} />{step.duration_s.toFixed(1)}s</span>
+            )}
+          </Space>
+          {step.step_type === 'key_group' && renderKeyGroupInfo(step)}
+          {step.step_type === 'adb_command' && renderAdbCommandInfo(step)}
+          {step.step_type === 'ai_navigate' && renderAiNavigateInfo(step)}
+          {step.step_type === 'ai_verify' && renderAiVerifyInfo(step)}
+          {step.step_type === 'wait' && (
+            <div style={{ padding: '8px 12px', background: '#fffbe6', borderRadius: 6, border: '1px solid #ffe58f', fontSize: 13 }}>
+              <span style={{ fontWeight: 500 }}>等待</span>{' '}
+              <span style={{ color: '#d48806' }}>{step.duration_ms || 0}ms（{((step.duration_ms || 0) / 1000).toFixed(1)}s）</span>
+            </div>
+          )}
+          {step.reason && (
+            <div style={{ padding: '8px 12px', borderRadius: 6, fontSize: 13, color: '#333', wordBreak: 'break-all',
+              background: step.status === 'failed' ? '#fff2f0' : '#fffbe6',
+              border: `1px solid ${step.status === 'failed' ? '#ffccc7' : '#ffe58f'}`,
+            }}>{step.reason}</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // --- 用例回放详情内容（与回放页面详情弹窗一致） ---
+  const renderCaseDetailContent = () => {
+    if (caseDetailLoading) return <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
+    if (!caseDetailData) return null
+    const d = caseDetailData
+
+    // 单次结果（有 steps）
+    if (d.steps && d.steps.length > 0) {
+      return (
+        <div style={{ maxHeight: '80vh', overflow: 'auto' }}>
+          {/* 概要统计 */}
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={6}><Card size="small"><Statistic title="总步骤" value={d.total_steps || d.steps.length} /></Card></Col>
+            <Col span={6}><Card size="small"><Statistic title="通过" value={d.steps.filter(s => s.status === 'passed').length} valueStyle={{ color: '#3f8600' }} prefix={<CheckCircleOutlined />} /></Card></Col>
+            <Col span={6}><Card size="small"><Statistic title="失败" value={d.steps.filter(s => s.status === 'failed' || s.status === 'error').length} valueStyle={{ color: '#cf1322' }} prefix={<CloseCircleOutlined />} /></Card></Col>
+            <Col span={6}><Card size="small"><Statistic title="总耗时" value={d.duration_s ? `${d.duration_s.toFixed(1)}s` : '-'} prefix={<ClockCircleOutlined />} /></Card></Col>
+          </Row>
+
+          {/* 回放视频 */}
+          {d.has_video && d.video_url && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontWeight: 500, fontSize: 13, color: '#555' }}><PlayCircleOutlined style={{ marginRight: 4 }} />回放视频</span>
+                <a href={d.video_url} download="replay.mp4" style={{ fontSize: 12 }}>下载视频</a>
+              </div>
+              <video src={d.video_url} controls preload="metadata" style={{ width: '100%', borderRadius: 6, background: '#000', maxHeight: 360 }}>
+                浏览器不支持该视频格式，请<a href={d.video_url} download="replay.mp4">下载</a>观看
+              </video>
+            </div>
+          )}
+
+          {/* 步骤列表（Collapse） */}
+          <Collapse
+            defaultActiveKey={d.steps.map((s, i) => (s.status === 'failed' || s.status === 'error') ? String(i) : null).filter(Boolean)}
+            items={d.steps.map((step, i) => {
+              let stepSummary = ''
+              if (step.step_type === 'key_group') {
+                const cmds = step.commands || []
+                if (cmds.length === 1) {
+                  const c = cmds[0] || {}
+                  stepSummary = c.is_long_press ? `长按 ${c.key} ${c.duration_ms ? (c.duration_ms/1000).toFixed(1)+'s' : ''}` : c.key
+                } else if (cmds.length > 1) {
+                  const keys = cmds.map(c => c.key)
+                  stepSummary = keys.every(k => k === keys[0]) ? `${keys[0]} ×${cmds.length}` : keys.join(' → ')
+                }
+              } else if (step.step_type === 'adb_command') {
+                stepSummary = step.description || step.command || ''
+              } else if (step.step_type === 'ai_navigate' || step.step_type === 'ai_verify') {
+                const p = step.prompt || ''
+                stepSummary = p.length > 30 ? p.slice(0, 30) + '...' : p
+              } else if (step.step_type === 'wait') {
+                stepSummary = `${((step.duration_ms || 0) / 1000).toFixed(1)}s`
+              }
+              return {
+                key: String(i),
+                label: (
+                  <Space>
+                    <span style={{ fontWeight: 500 }}>步骤 {i + 1}</span>
+                    <StatusTag status={step.status} />
+                    <Tag color="blue">{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+                    {stepSummary && <span style={{ color: '#555', fontSize: 12 }}>{stepSummary}</span>}
+                    {step.duration_s != null && <span style={{ color: '#999', fontSize: 12 }}>{step.duration_s.toFixed(1)}s</span>}
+                  </Space>
+                ),
+                children: renderStepDetail(step, i),
+              }
+            })}
+          />
+        </div>
+      )
+    }
+
+    // 多轮结果（summary 模式，有 runs）
+    if (d.runs && d.runs.length > 0) {
+      return (
+        <div style={{ maxHeight: '80vh', overflow: 'auto' }}>
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={6}><Card size="small"><Statistic title="总轮次" value={d.repeat || d.runs.length} /></Card></Col>
+            <Col span={6}><Card size="small"><Statistic title="通过" value={d.passed || 0} valueStyle={{ color: '#3f8600' }} prefix={<CheckCircleOutlined />} /></Card></Col>
+            <Col span={6}><Card size="small"><Statistic title="失败" value={d.failed || 0} valueStyle={{ color: '#cf1322' }} prefix={<CloseCircleOutlined />} /></Card></Col>
+            <Col span={6}><Card size="small"><Statistic title="通过率" value={d.pass_rate != null ? `${(d.pass_rate * 100).toFixed(0)}%` : '-'} valueStyle={{ color: (d.pass_rate || 0) >= 0.8 ? '#3f8600' : '#cf1322' }} /></Card></Col>
+          </Row>
+          <Timeline
+            items={(d.runs || []).map((run, i) => ({
+              color: run.result === 'passed' ? 'green' : run.result === 'failed' ? 'red' : 'gray',
+              children: (
+                <Space>
+                  <span>第 {run.run || i + 1} 轮</span>
+                  <StatusTag status={run.result} />
+                  {run.duration_s != null && <span style={{ color: '#999' }}>{run.duration_s.toFixed(1)}s</span>}
+                  <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewRunDetail(run.run || i + 1)}>查看详情</Button>
+                </Space>
+              ),
+            }))}
+          />
+          {runDetailData && runDetailData.steps && (
+            <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
+              <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Space>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>第 {selectedRun} 轮 — 步骤详情</span>
+                  <StatusTag status={runDetailData.result} />
+                </Space>
+                <Button size="small" onClick={() => { setSelectedRun(null); setRunDetailData(null) }}>收起</Button>
+              </div>
+              {runDetailData.has_video && runDetailData.video_url && (
+                <div style={{ marginBottom: 16 }}>
+                  <video src={runDetailData.video_url} controls preload="metadata" style={{ width: '100%', borderRadius: 6, background: '#000', maxHeight: 300 }} />
+                </div>
+              )}
+              <Collapse
+                defaultActiveKey={runDetailData.steps.map((s, i) => (s.status === 'failed' || s.status === 'error') ? String(i) : null).filter(Boolean)}
+                items={runDetailData.steps.map((step, i) => {
+                  let stepSummary = ''
+                  if (step.step_type === 'key_group') {
+                    const cmds = step.commands || []
+                    if (cmds.length === 1) { const c = cmds[0] || {}; stepSummary = c.is_long_press ? `长按 ${c.key}` : c.key }
+                    else if (cmds.length > 1) { const keys = cmds.map(c => c.key); stepSummary = keys.every(k => k === keys[0]) ? `${keys[0]} ×${cmds.length}` : keys.join(' → ') }
+                  } else if (step.step_type === 'adb_command') { stepSummary = step.description || step.command || '' }
+                  else if (step.step_type === 'ai_navigate' || step.step_type === 'ai_verify') { const p = step.prompt || ''; stepSummary = p.length > 30 ? p.slice(0, 30) + '...' : p }
+                  return {
+                    key: String(i),
+                    label: (
+                      <Space>
+                        <span style={{ fontWeight: 500 }}>步骤 {i + 1}</span>
+                        <StatusTag status={step.status} />
+                        <Tag color="blue">{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+                        {stepSummary && <span style={{ color: '#555', fontSize: 12 }}>{stepSummary}</span>}
+                        {step.duration_s != null && <span style={{ color: '#999', fontSize: 12 }}>{step.duration_s.toFixed(1)}s</span>}
+                      </Space>
+                    ),
+                    children: renderStepDetail(step, i),
+                  }
+                })}
+              />
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    return <div style={{ textAlign: 'center', color: '#999', padding: 24 }}>无详细数据</div>
   }
 
   return (
@@ -550,7 +801,7 @@ export default function TestPlan() {
       <Drawer
         title={`回放详情 ${caseDetailData?.jira_key || caseDetailData?.case_key || ''}`}
         open={caseDetailDrawer}
-        onClose={() => { setCaseDetailDrawer(false); setCaseDetailData(null) }}
+        onClose={() => { setCaseDetailDrawer(false); setCaseDetailData(null); setSelectedRun(null); setRunDetailData(null) }}
         width={720}
       >
         {renderCaseDetailContent()}
