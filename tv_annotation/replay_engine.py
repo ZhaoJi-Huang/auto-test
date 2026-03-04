@@ -396,6 +396,8 @@ class ReplayEngine:
                     result = self._execute_ai_navigate(step, idx, run_dir)
                 elif step_type == "ai_verify":
                     result = self._execute_ai_verify(step, idx, run_dir)
+                elif step_type == "wait":
+                    result = self._execute_wait(step, idx, run_dir)
                 else:
                     result = {"status": "skipped", "reason": f"未知步骤类型: {step_type}"}
             except Exception as e:
@@ -723,6 +725,24 @@ class ReplayEngine:
             }
 
     # ------------------------------------------------------------------
+    # 等待步骤
+    # ------------------------------------------------------------------
+
+    def _execute_wait(self, step, step_idx, run_dir):
+        """执行等待步骤"""
+        duration_ms = step.get("duration_ms", 1000)
+        duration_s = duration_ms / 1000.0
+        logger.info(f"等待 {duration_ms}ms")
+        time.sleep(duration_s)
+        screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
+        self._take_screenshot(screenshot_path)
+        return {
+            "status": "passed",
+            "screenshot": screenshot_path,
+            "duration_ms": duration_ms,
+        }
+
+    # ------------------------------------------------------------------
     # 工具方法
     # ------------------------------------------------------------------
 
@@ -760,6 +780,9 @@ class ReplayEngine:
             elif step_type == "ai_verify":
                 prompt = step.get("prompt", "")
                 summary = prompt[:40] + "..." if len(prompt) > 40 else prompt
+            elif step_type == "wait":
+                duration_ms = step.get("duration_ms", 0)
+                summary = f"等待 {duration_ms}ms"
             overview.append({"type": step_type, "summary": summary})
         return overview
 

@@ -202,6 +202,13 @@ def create_recording_routes(device_config, scripts_repo_path):
             if not prompt:
                 return jsonify({"success": False, "error": "缺少 prompt 参数"}), 400
             step = {"type": step_type, "prompt": prompt}
+        elif step_type == "wait":
+            duration_ms = data.get("duration_ms", 3000)
+            try:
+                duration_ms = max(int(duration_ms), 100)
+            except (ValueError, TypeError):
+                duration_ms = 3000
+            step = {"type": "wait", "duration_ms": duration_ms}
         else:
             return jsonify({"success": False, "error": f"不支持的类型: {step_type}"}), 400
 
@@ -285,6 +292,13 @@ def create_recording_routes(device_config, scripts_repo_path):
             if not prompt:
                 return jsonify({"success": False, "error": "缺少 prompt 参数"}), 400
             steps[index] = {"type": step_type, "prompt": prompt}
+        elif step_type == "wait":
+            duration_ms = data.get("duration_ms", 3000)
+            try:
+                duration_ms = max(int(duration_ms), 100)
+            except (ValueError, TypeError):
+                duration_ms = 3000
+            steps[index] = {"type": "wait", "duration_ms": duration_ms}
         else:
             return jsonify({"success": False, "error": f"不支持的类型: {step_type}"}), 400
 
@@ -399,6 +413,14 @@ def create_recording_routes(device_config, scripts_repo_path):
                 "type": step_type,
                 "prompt": prompt,
             }
+            ok, msg = recorder.insert_step_at(index, step)
+        elif step_type == "wait":
+            duration_ms = data.get("duration_ms", 3000)
+            try:
+                duration_ms = max(int(duration_ms), 100)
+            except (ValueError, TypeError):
+                duration_ms = 3000
+            step = {"type": "wait", "duration_ms": duration_ms}
             ok, msg = recorder.insert_step_at(index, step)
         else:
             return jsonify({"success": False, "error": f"不支持的类型: {step_type}"}), 400

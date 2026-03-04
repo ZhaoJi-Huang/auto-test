@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Card, Select, Button, Space, Table, Input, Tag, message, Alert, Divider, Radio, Modal, Popconfirm, Collapse } from 'antd'
+import { Card, Select, Button, Space, Table, Input, InputNumber, Tag, message, Alert, Divider, Radio, Modal, Popconfirm, Collapse } from 'antd'
 import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined, WarningOutlined, ThunderboltOutlined, LoadingOutlined, CheckCircleOutlined, ClockCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep, quickReplay, stopQuickReplay, getReplayStatus } from '../api'
 
@@ -39,6 +39,7 @@ export default function Recording() {
   const [modalAdbDesc, setModalAdbDesc] = useState('')
   const [modalAiType, setModalAiType] = useState('ai_navigate')
   const [modalAiPrompt, setModalAiPrompt] = useState('')
+  const [modalWaitMs, setModalWaitMs] = useState(3000)
 
   const fetchCases = async () => {
     try {
@@ -230,6 +231,7 @@ export default function Recording() {
     setModalAdbDesc('')
     setModalAiType('ai_navigate')
     setModalAiPrompt('')
+    setModalWaitMs(3000)
   }
 
   const openInsertModal = (afterIndex) => {
@@ -254,6 +256,9 @@ export default function Recording() {
       setModalStepType('key')
       const firstKey = step.commands?.[0]?.key || 'ENTER'
       setModalKey(firstKey)
+    } else if (step.type === 'wait') {
+      setModalStepType('wait')
+      setModalWaitMs(step.duration_ms || 3000)
     }
     setModalVisible(true)
   }
@@ -266,6 +271,8 @@ export default function Recording() {
     } else if (modalStepType === 'adb_command') {
       if (!modalAdbCmd) { message.warning('请输入 ADB 命令'); return null }
       params = { command: modalAdbCmd, description: modalAdbDesc }
+    } else if (modalStepType === 'wait') {
+      params = { duration_ms: modalWaitMs || 3000 }
     } else {
       if (!modalAiPrompt) { message.warning('请输入 AI 指令'); return null }
       params = { prompt: modalAiPrompt }
@@ -317,6 +324,8 @@ export default function Recording() {
       displayItems.push({ ...base, type: 'AI导航', label: s.prompt, color: 'purple' })
     } else if (s.type === 'ai_verify') {
       displayItems.push({ ...base, type: 'AI验证', label: s.prompt, color: 'green' })
+    } else if (s.type === 'wait') {
+      displayItems.push({ ...base, type: '等待', label: `${s.duration_ms || 0}ms`, color: 'gold' })
     } else if (s.type === 'key_group') {
       const keys = (s.commands || []).map(c => {
         const name = c.key || '?'
@@ -691,6 +700,7 @@ export default function Recording() {
             <Radio.Button value="key">按键</Radio.Button>
             <Radio.Button value="adb_command">ADB 命令</Radio.Button>
             <Radio.Button value="ai">AI 指令</Radio.Button>
+            <Radio.Button value="wait">等待</Radio.Button>
           </Radio.Group>
         </div>
 
@@ -709,6 +719,14 @@ export default function Recording() {
             <Input placeholder="ADB 命令" value={modalAdbCmd} onChange={e => setModalAdbCmd(e.target.value)} />
             <Input placeholder="描述（可选）" value={modalAdbDesc} onChange={e => setModalAdbDesc(e.target.value)} />
           </Space>
+        )}
+
+        {modalStepType === 'wait' && (
+          <div>
+            <span style={{ marginRight: 8 }}>等待时长（毫秒）：</span>
+            <InputNumber min={100} max={300000} step={500} value={modalWaitMs} onChange={setModalWaitMs} style={{ width: 160 }} />
+            <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>{((modalWaitMs || 0) / 1000).toFixed(1)}s</span>
+          </div>
         )}
 
         {modalStepType === 'ai' && (

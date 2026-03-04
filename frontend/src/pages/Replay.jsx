@@ -38,6 +38,7 @@ const stepTypeLabels = {
   adb_command: 'ADB 命令',
   ai_navigate: 'AI 导航',
   ai_verify: 'AI 验证',
+  wait: '等待',
 }
 
 function StatusTag({ status }) {
@@ -408,6 +409,12 @@ export default function Replay() {
           {step.step_type === 'adb_command' && renderAdbCommandInfo(step)}
           {step.step_type === 'ai_navigate' && renderAiNavigateInfo(step)}
           {step.step_type === 'ai_verify' && renderAiVerifyInfo(step)}
+          {step.step_type === 'wait' && (
+            <div style={{ padding: '8px 12px', background: '#fffbe6', borderRadius: 6, border: '1px solid #ffe58f', fontSize: 13 }}>
+              <span style={{ fontWeight: 500 }}>等待</span>{' '}
+              <span style={{ color: '#d48806' }}>{step.duration_ms || 0}ms（{((step.duration_ms || 0) / 1000).toFixed(1)}s）</span>
+            </div>
+          )}
 
           {step.reason && (
             <div style={{
