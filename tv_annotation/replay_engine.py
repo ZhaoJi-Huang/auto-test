@@ -734,8 +734,10 @@ class ReplayEngine:
         duration_s = duration_ms / 1000.0
         logger.info(f"等待 {duration_ms}ms")
         time.sleep(duration_s)
-        screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
-        self._take_screenshot(screenshot_path)
+        screenshot_path = None
+        if run_dir:
+            screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
+            self._take_screenshot(screenshot_path)
         return {
             "status": "passed",
             "screenshot": screenshot_path,
