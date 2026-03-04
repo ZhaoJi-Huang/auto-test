@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Table, Button, Space, Input, Select, Tag, Modal, Form, Drawer, message, Popconfirm, Descriptions } from 'antd'
+import { Card, Table, Button, Space, Input, Select, Tag, Modal, Form, Drawer, message, Popconfirm, Descriptions, Tooltip } from 'antd'
 import { PlusOutlined, ImportOutlined, SyncOutlined, DeleteOutlined, EyeOutlined, EditOutlined, CopyOutlined, MinusCircleOutlined } from '@ant-design/icons'
 import { getCases, getCase, importByJql, importByKey, syncCase, createCase, updateCase, copyCase, deleteCase } from '../api'
 
@@ -10,17 +10,17 @@ function TestStepsField() {
   return (
     <Form.List name="test_steps">
       {(fields, { add, remove }) => (
-        <div>
+        <div style={{ maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
           {fields.map(({ key, name, ...restField }) => (
             <div key={key} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
               <span style={{ lineHeight: '32px', minWidth: 24, color: '#999' }}>{name + 1}.</span>
               <Form.Item {...restField} name={[name, 'step']} style={{ flex: 1, marginBottom: 0 }}>
-                <Input placeholder="测试步骤" />
+                <Input.TextArea rows={2} placeholder="测试步骤" autoSize={{ minRows: 2, maxRows: 4 }} />
               </Form.Item>
               <Form.Item {...restField} name={[name, 'expectedResult']} style={{ flex: 1, marginBottom: 0 }}>
-                <Input placeholder="期望结果" />
+                <Input.TextArea rows={2} placeholder="期望结果" autoSize={{ minRows: 2, maxRows: 4 }} />
               </Form.Item>
-              <MinusCircleOutlined onClick={() => remove(name)} style={{ lineHeight: '32px', color: '#ff4d4f', cursor: 'pointer' }} />
+              <MinusCircleOutlined onClick={() => remove(name)} style={{ marginTop: 8, color: '#ff4d4f', cursor: 'pointer' }} />
             </div>
           ))}
           <Button type="dashed" onClick={() => add({ step: '', expectedResult: '' })} block icon={<PlusOutlined />}>
@@ -201,17 +201,17 @@ export default function CaseManagement() {
       }
     },
     {
-      title: '操作', key: 'action', width: 260,
+      title: '操作', key: 'action', width: 180,
       render: (_, record) => (
-        <Space size="small">
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.key)}>详情</Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.key)}>编辑</Button>
-          <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record.key)}>复制</Button>
+        <Space size={4}>
+          <Tooltip title="详情"><Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.key)} /></Tooltip>
+          <Tooltip title="编辑"><Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.key)} /></Tooltip>
+          <Tooltip title="复制"><Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record.key)} /></Tooltip>
           {record.source === 'jira' && (
-            <Button type="link" size="small" icon={<SyncOutlined />} onClick={() => handleSync(record.key)}>同步</Button>
+            <Tooltip title="同步"><Button type="link" size="small" icon={<SyncOutlined />} onClick={() => handleSync(record.key)} /></Tooltip>
           )}
           <Popconfirm title="确定删除此用例？" onConfirm={() => handleDelete(record.key)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+            <Tooltip title="删除"><Button type="link" size="small" danger icon={<DeleteOutlined />} /></Tooltip>
           </Popconfirm>
         </Space>
       )
