@@ -293,10 +293,11 @@ class TVRecorder:
         self._raw_keys = []
 
         # before: 上一步的 after，或初始 Activity
+        # 如果上一步没有 after_activity（如 AI 导航/校验），则不设置 before
         before_activity = ""
         if self._steps:
             before_activity = self._steps[-1].get("after_activity", "")
-        if not before_activity:
+        elif self._initial_activity:
             before_activity = self._initial_activity
 
         # after: 采样的最新 Activity

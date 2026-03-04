@@ -480,18 +480,13 @@ class ReplayEngine:
         expected_before = step.get("before_activity", "")
         expected_after = step.get("after_activity", "")
 
-        # 1. 校验 before_activity
+        # 1. 校验 before_activity（不匹配时记录 warning，继续执行）
+        before_warning = None
         if expected_before:
             current = get_current_activity(self._device_serial)
             if current and expected_before and current != expected_before:
-                # 状态偏离：截图并中断
-                screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}_deviation.png")
-                self._take_screenshot(screenshot_path)
-                return {
-                    "status": "failed",
-                    "reason": f"状态偏离: 期望 {expected_before}，实际 {current}",
-                    "screenshot": screenshot_path,
-                }
+                before_warning = f"before_activity 不一致: 期望 {expected_before}，实际 {current}"
+                logger.warning(f"步骤 {step_idx + 1} {before_warning}，继续执行")
 
         # 2. 执行按键
         for cmd_idx, cmd in enumerate(commands):
@@ -553,7 +548,11 @@ class ReplayEngine:
         screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
         self._take_screenshot(screenshot_path)
 
-        return {"status": "passed", "screenshot": screenshot_path}
+        result = {"status": "passed", "screenshot": screenshot_path}
+        if before_warning:
+            result["status"] = "warning"
+            result["reason"] = before_warning
+        return result
 
     def _execute_adb_command(self, step, step_idx, run_dir):
         """执行 ADB 命令步骤
@@ -583,17 +582,13 @@ class ReplayEngine:
         expected_before = step.get("before_activity", "")
         expected_after = step.get("after_activity", "")
 
-        # 1. 校验 before_activity
+        # 1. 校验 before_activity（不匹配时记录 warning，继续执行）
+        before_warning = None
         if expected_before:
             current = get_current_activity(self._device_serial)
             if current and expected_before and current != expected_before:
-                screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}_deviation.png")
-                self._take_screenshot(screenshot_path)
-                return {
-                    "status": "failed",
-                    "reason": f"状态偏离: 期望 {expected_before}，实际 {current}",
-                    "screenshot": screenshot_path,
-                }
+                before_warning = f"before_activity 不一致: 期望 {expected_before}，实际 {current}"
+                logger.warning(f"步骤 {step_idx + 1} {before_warning}，继续执行")
 
         # 2. 执行 ADB 命令
         try:
@@ -634,7 +629,11 @@ class ReplayEngine:
         screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
         self._take_screenshot(screenshot_path)
 
-        return {"status": "passed", "output": output, "screenshot": screenshot_path}
+        result = {"status": "passed", "output": output, "screenshot": screenshot_path}
+        if before_warning:
+            result["status"] = "warning"
+            result["reason"] = before_warning
+        return result
 
     def _execute_ai_navigate(self, step, step_idx, run_dir):
         """执行 AI 导航步骤"""
@@ -658,12 +657,35 @@ class ReplayEngine:
             if result["result"] == "aborted":
                 return {"status": "aborted", "reason": "用户手动停止"}
 
-            return {
+            # 导航完成后截图保存到结果目录（供报告展示）
+            screenshot_path = None
+            if run_dir:
+                screenshot_path = os.path.join(run_dir, f"step_{step_idx + 1}.png")
+                self._take_screenshot(screenshot_path)
+
+            # 将每轮的临时截图也复制到结果目录
+            if run_dir:
+                import shutil
+                for r in result.get("rounds", []):
+                    tmp_screenshot = r.get("screenshot")
+                    if tmp_screenshot and os.path.isfile(tmp_screenshot):
+                        round_num = r.get("round", 0)
+                        dest = os.path.join(run_dir, f"step_{step_idx + 1}_nav_round_{round_num}.png")
+                        try:
+                            shutil.copy2(tmp_screenshot, dest)
+                            r["screenshot"] = dest
+                        except Exception:
+                            pass
+
+            ret = {
                 "status": "passed" if result["result"] == "success" else "warning",
                 "ai_result": result["result"],
                 "total_rounds": result["total_rounds"],
                 "rounds": result["rounds"],
             }
+            if screenshot_path:
+                ret["screenshot"] = screenshot_path
+            return ret
         except Exception as e:
             logger.error(f"AI 导航异常: {e}")
             return {"status": "warning", "reason": f"AI 导航异常: {e}"}
