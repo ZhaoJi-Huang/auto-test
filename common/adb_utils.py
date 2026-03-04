@@ -2,7 +2,7 @@
 ADB 工具函数模块
 提供 ADB 命令执行、设备检查、Activity 获取等公共功能
 """
-
+import datetime
 import subprocess
 import re
 from .utils import ADB_PATH
@@ -104,6 +104,7 @@ def get_current_activity(device_serial):
     import logging
     logger = logging.getLogger(__name__)
     try:
+        current = datetime.datetime.now()
         result = run_adb(
             ["shell", "dumpsys window | grep mCurrentFocus"],
             device_serial=device_serial,
@@ -111,7 +112,7 @@ def get_current_activity(device_serial):
         )
         output = result.stdout.decode("utf-8", errors="ignore").strip()
         stderr = result.stderr.decode("utf-8", errors="ignore").strip()
-        logger.info(f"get_current_activity: rc={result.returncode}, stdout='{output[:200]}', stderr='{stderr[:100]}'")
+        logger.info(f"get_current_activity: time = {datetime.datetime.now()-current},rc={result.returncode}, stdout='{output[:200]}', stderr='{stderr[:100]}'")
         if output:
             # 匹配两种格式：
             # 1. com.tcl.cyberui/com.tcl.cyberui.MainActivity （包名/Activity）

@@ -26,6 +26,10 @@ _BASE_HEADERS = {
 _FILE_UPLOAD_URL = "https://chat-ape-dls.tclking.com/chatape/v1/files/objects"
 _CHAT_URL = "https://chat-ape-dls.tclking.com/3rd_party/v1/chat/agent"
 
+# 复用连接的 Session，避免每次请求重新建立 TCP/TLS 握手
+_session = requests.Session()
+_session.headers.update(_BASE_HEADERS)
+
 # AI 按键名 → ADB keycode 映射
 _AI_KEY_MAP = {
     "UP": "KEYCODE_DPAD_UP",
@@ -36,6 +40,35 @@ _AI_KEY_MAP = {
     "BACK": "KEYCODE_BACK",
     "HOME": "KEYCODE_HOME",
 }
+
+
+def _compress_image(filepath, max_size_kb=300, quality=70):
+    """压缩图片为 JPEG，减少上传体积
+
+    Args:
+        filepath: 原始图片路径
+        max_size_kb: 目标最大体积（KB）
+        quality: JPEG 质量（1-100）
+
+    Returns:
+        str: 压缩后的文件路径（可能与原路径不同）
+    """
+    file_size_kb = os.path.getsize(filepath) / 1024
+    if file_size_kb <= max_size_kb:
+        return filepath
+
+    try:
+        from PIL import Image
+        img = Image.open(filepath)
+        compressed_path = filepath.rsplit(".", 1)[0] + "_compressed.jpg"
+        img = img.convert("RGB")
+        img.save(compressed_path, "JPEG", quality=quality)
+        new_size_kb = os.path.getsize(compressed_path) / 1024
+        logger.info(f"图片压缩: {file_size_kb:.0f}KB -> {new_size_kb:.0f}KB")
+        return compressed_path
+    except Exception as e:
+        logger.warning(f"图片压缩失败，使用原图: {e}")
+        return filepath
 
 
 def upload_image(filepath):
@@ -50,14 +83,16 @@ def upload_image(filepath):
     Raises:
         RuntimeError: 上传失败时抛出
     """
-    filename = os.path.basename(filepath)
+    # 压缩大图片以加速上传
+    upload_path = _compress_image(filepath)
+    filename = os.path.basename(upload_path)
     try:
-        with open(filepath, "rb") as f:
-            files = [("files", (filename, f, "image/png"))]
-            response = requests.post(
+        with open(upload_path, "rb") as f:
+            mime = "image/jpeg" if upload_path.endswith(".jpg") else "image/png"
+            files = [("files", (filename, f, mime))]
+            response = _session.post(
                 _FILE_UPLOAD_URL,
                 files=files,
-                headers=_BASE_HEADERS,
                 timeout=30,
             )
         response.raise_for_status()
@@ -83,7 +118,7 @@ def chat(text, image_url=None, workflow_id=None):
     """
     content = []
     if image_url:
-        content.append({"type": "image_url", "image_url": image_url})
+        content.append({"type": "image_url", "image_url": {"url": image_url}})
     content.append({"type": "text", "text": text})
 
     data = {
@@ -96,10 +131,9 @@ def chat(text, image_url=None, workflow_id=None):
 
     response = None
     try:
-        response = requests.post(
+        response = _session.post(
             _CHAT_URL,
             json=data,
-            headers=_BASE_HEADERS,
             timeout=60,
         )
         response.raise_for_status()
@@ -195,10 +229,12 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
             }
 
         round_info = {"round": i}
+        round_start = time.time()
 
         try:
             # 1. 截图
             import tempfile
+            t0 = time.time()
             screenshot_path = os.path.join(
                 tempfile.gettempdir(), f"ai_nav_{i}.png"
             )
@@ -206,14 +242,22 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
                 round_info["error"] = "截图失败"
                 rounds.append(round_info)
                 continue
+            t_capture = time.time() - t0
+            logger.info(f"AI 导航第 {i} 轮 - 截图耗时: {t_capture:.2f}s")
 
             # 2. 上传图片
+            t0 = time.time()
             image_url = upload_image(screenshot_path)
+            t_upload = time.time() - t0
+            logger.info(f"AI 导航第 {i} 轮 - 图片上传耗时: {t_upload:.2f}s")
             round_info["screenshot"] = screenshot_path
 
             # 3. 发送给大模型
+            t0 = time.time()
             filled_prompt = navigate_prompt_template.format(prompt=prompt)
             response_text = chat(filled_prompt, image_url=image_url)
+            t_chat = time.time() - t0
+            logger.info(f"AI 导航第 {i} 轮 - 大模型对话耗时: {t_chat:.2f}s")
             round_info["ai_response"] = response_text
 
             # 4. 解析返回
@@ -254,6 +298,8 @@ def ai_navigate(prompt, device_serial, capture_func, max_rounds=20, stop_check=N
             round_info["error"] = str(e)
             logger.error(f"AI 导航第 {i} 轮异常: {e}", exc_info=True)
 
+        round_total = time.time() - round_start
+        logger.info(f"AI 导航第 {i} 轮 - 总耗时: {round_total:.2f}s")
         rounds.append(round_info)
 
     logger.warning(f"AI 导航超时，已达最大轮次 {max_rounds}")
@@ -282,7 +328,7 @@ def ai_verify(prompt, screenshot_path):
         "你是一个 TV 界面测试校验助手。当前 TV 屏幕截图如上。\n"
         "请判断：{prompt}\n"
         "返回 JSON 格式：\n"
-        '{"passed": true/false, "reason": "判断理由", "confidence": 0.0-1.0}\n'
+        '{{"passed": true/false, "reason": "判断理由", "confidence": 0.0-1.0}}\n'
         "只返回 JSON，不要其他内容。"
     )
 

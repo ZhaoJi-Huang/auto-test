@@ -12,7 +12,19 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(git rebase:*)",
-      "Bash(git stash:*)"
-    ]
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(npm create:*)",
+      "Bash(rm:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(cp:*)",
+      "Bash(curl:*)",
+      "Bash(npx vite:*)",
+      "Bash(ls:*)",
+      "Bash(echo exit: $?:*)"
+    ],
+    "defaultMode": "bypassPermissions"
   }
 }
