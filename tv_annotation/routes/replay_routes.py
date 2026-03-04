@@ -185,13 +185,44 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
 
         return jsonify({"success": False, "error": "未找到结果文件"}), 404
 
-    @bp.route("/api/tv/replay/screenshot/<case_key>/<timestamp>/<filename>", methods=["GET"])
-    def get_screenshot(case_key, timestamp, filename):
-        """获取回放截图"""
-        # 安全检查：防止路径穿越
-        for part in (case_key, timestamp, filename):
+    @bp.route("/api/tv/replay/result/<case_key>/<timestamp>/run/<int:run_index>", methods=["GET"])
+    def get_run_result(case_key, timestamp, run_index):
+        """获取多轮回放中单轮的详细结果"""
+        for part in (case_key, timestamp):
             if ".." in part or "/" in part or "\\" in part:
                 return jsonify({"success": False, "error": "非法路径"}), 400
+
+        run_dir = os.path.join(data_dir, "replay", case_key, timestamp, f"run_{run_index}")
+        result_file = os.path.join(run_dir, "result.json")
+
+        if not os.path.isfile(result_file):
+            return jsonify({"success": False, "error": f"第 {run_index} 轮结果不存在"}), 404
+
+        try:
+            with open(result_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # 检查是否有回放视频
+            video_file = os.path.join(run_dir, "replay.mp4")
+            data["has_video"] = os.path.isfile(video_file)
+            data["video_url"] = (
+                f"/api/tv/replay/video/{case_key}/{timestamp}/run/{run_index}"
+                if data["has_video"]
+                else None
+            )
+            return jsonify({"success": True, "data": data})
+        except Exception as e:
+            return jsonify({"success": False, "error": f"读取结果失败: {e}"})
+
+    @bp.route("/api/tv/replay/screenshot/<case_key>/<timestamp>/<path:filename>", methods=["GET"])
+    def get_screenshot(case_key, timestamp, filename):
+        """获取回放截图（支持 run_N/filename 子目录格式）"""
+        # 安全检查：防止路径穿越
+        for part in (case_key, timestamp):
+            if ".." in part or "/" in part or "\\" in part:
+                return jsonify({"success": False, "error": "非法路径"}), 400
+        # filename 可含子目录（如 run_1/step_1.png），只检查 ..
+        if ".." in filename:
+            return jsonify({"success": False, "error": "非法路径"}), 400
 
         file_path = os.path.join(data_dir, "replay", case_key, timestamp, filename)
         if not os.path.isfile(file_path):

@@ -8,7 +8,7 @@ import {
   ClockCircleOutlined, EyeOutlined, WarningOutlined, ExclamationCircleOutlined,
   ReloadOutlined, FileTextOutlined, HistoryOutlined
 } from '@ant-design/icons'
-import { getCases, getCase, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult } from '../api'
+import { getCases, getCase, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult, getRunResult } from '../api'
 
 // 步骤截图 URL：通过后端 API 获取
 const getScreenshotUrl = (screenshotPath) => {
@@ -58,6 +58,9 @@ export default function Replay() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [caseDetail, setCaseDetail] = useState(null)
   const [rightTab, setRightTab] = useState('info')
+  const [selectedRun, setSelectedRun] = useState(null)
+  const [runDetailData, setRunDetailData] = useState(null)
+  const [runDetailLoading, setRunDetailLoading] = useState(false)
   const timerRef = useRef(null)
 
   const fetchCaseDetail = async (caseKey) => {
@@ -152,6 +155,22 @@ export default function Replay() {
       if (selectedCase) fetchResults(selectedCase)
     } catch (e) {
       message.error('停止回放失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
+  const handleViewRunDetail = async (runIndex) => {
+    if (!detailData || !selectedCase) return
+    setSelectedRun(runIndex)
+    setRunDetailLoading(true)
+    try {
+      const timestamp = detailData.timestamp || detailData.start_time
+      const res = await getRunResult(selectedCase, timestamp, runIndex)
+      setRunDetailData(res.data?.data || res.data)
+    } catch (e) {
+      message.error(`获取第 ${runIndex} 轮详情失败`)
+      setRunDetailData(null)
+    } finally {
+      setRunDetailLoading(false)
     }
   }
 
@@ -730,7 +749,7 @@ export default function Replay() {
           ) : '回放详情'
         }
         open={detailVisible}
-        onCancel={() => { setDetailVisible(false); setDetailData(null) }}
+        onCancel={() => { setDetailVisible(false); setDetailData(null); setSelectedRun(null); setRunDetailData(null) }}
         footer={null}
         width={860}
         loading={detailLoading}
@@ -878,17 +897,106 @@ export default function Replay() {
             </Row>
 
             <Timeline
-              items={(detailData.runs || []).map((run, i) => ({
-                color: run.result === 'passed' ? 'green' : run.result === 'failed' ? 'red' : 'gray',
-                children: (
-                  <Space>
-                    <span>第 {run.run || i + 1} 轮</span>
-                    <StatusTag status={run.result} />
-                    {run.duration_s != null && <span style={{ color: '#999' }}>{run.duration_s.toFixed(1)}s</span>}
-                  </Space>
-                ),
-              }))}
+              items={(detailData.runs || []).map((run, i) => {
+                const runIdx = run.run || i + 1
+                const isSelected = selectedRun === runIdx
+                return {
+                  color: run.result === 'passed' ? 'green' : run.result === 'failed' ? 'red' : 'gray',
+                  children: (
+                    <Space>
+                      <span>第 {runIdx} 轮</span>
+                      <StatusTag status={run.result} />
+                      {run.duration_s != null && <span style={{ color: '#999' }}>{run.duration_s.toFixed(1)}s</span>}
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<EyeOutlined />}
+                        onClick={() => handleViewRunDetail(runIdx)}
+                        loading={runDetailLoading && selectedRun === runIdx}
+                        style={{ padding: 0, fontWeight: isSelected ? 600 : 400 }}
+                      >
+                        {isSelected ? '当前查看' : '查看详情'}
+                      </Button>
+                    </Space>
+                  ),
+                }
+              })}
             />
+
+            {/* 选中轮次的步骤详情 */}
+            {selectedRun != null && runDetailData && runDetailData.steps && (
+              <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
+                <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Space>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>第 {selectedRun} 轮 — 步骤详情</span>
+                    <StatusTag status={runDetailData.result} />
+                    {runDetailData.duration_s != null && (
+                      <span style={{ color: '#999', fontSize: 13 }}>{runDetailData.duration_s.toFixed(1)}s</span>
+                    )}
+                  </Space>
+                  <Button size="small" onClick={() => { setSelectedRun(null); setRunDetailData(null) }}>收起</Button>
+                </div>
+
+                {/* 回放视频 */}
+                {runDetailData.has_video && runDetailData.video_url && (
+                  <div style={{ marginBottom: 16 }}>
+                    <video
+                      src={runDetailData.video_url}
+                      controls
+                      preload="metadata"
+                      style={{ width: '100%', borderRadius: 6, background: '#000', maxHeight: 300 }}
+                    />
+                  </div>
+                )}
+
+                <Collapse
+                  defaultActiveKey={
+                    runDetailData.steps
+                      .map((s, i) => (s.status === 'failed' || s.status === 'error') ? String(i) : null)
+                      .filter(Boolean)
+                  }
+                  items={runDetailData.steps.map((step, i) => {
+                    let stepSummary = ''
+                    if (step.step_type === 'key_group') {
+                      const cmds = step.commands || []
+                      if (cmds.length === 1) {
+                        const c = cmds[0] || {}
+                        stepSummary = c.is_long_press
+                          ? `长按 ${c.key} ${c.duration_ms ? (c.duration_ms/1000).toFixed(1)+'s' : ''}`
+                          : c.key
+                      } else if (cmds.length > 1) {
+                        const keys = cmds.map(c => c.key)
+                        stepSummary = keys.every(k => k === keys[0]) ? `${keys[0]} ×${cmds.length}` : keys.join(' → ')
+                      }
+                    } else if (step.step_type === 'adb_command') {
+                      stepSummary = step.description || step.command || ''
+                    } else if (step.step_type === 'ai_navigate' || step.step_type === 'ai_verify') {
+                      const p = step.prompt || ''
+                      stepSummary = p.length > 30 ? p.slice(0, 30) + '...' : p
+                    }
+
+                    return {
+                      key: String(i),
+                      label: (
+                        <Space>
+                          <span style={{ fontWeight: 500 }}>步骤 {i + 1}</span>
+                          <StatusTag status={step.status} />
+                          <Tag color="blue">{stepTypeLabels[step.step_type] || step.step_type}</Tag>
+                          {stepSummary && <span style={{ color: '#555', fontSize: 12 }}>{stepSummary}</span>}
+                          {step.duration_s != null && (
+                            <span style={{ color: '#999', fontSize: 12 }}>{step.duration_s.toFixed(1)}s</span>
+                          )}
+                        </Space>
+                      ),
+                      children: renderStepDetail(step, i),
+                    }
+                  })}
+                />
+              </div>
+            )}
+            {selectedRun != null && runDetailLoading && (
+              <div style={{ textAlign: 'center', padding: '24px 0', color: '#999' }}>加载中...</div>
+            )}
           </div>
         )}
       </Modal>

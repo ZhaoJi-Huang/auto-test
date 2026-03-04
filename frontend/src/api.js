@@ -49,6 +49,7 @@ export const stopReplay = () => api.post('/api/tv/replay/stop')
 export const getReplayStatus = () => api.get('/api/tv/replay/status')
 export const getReplayResults = (caseKey) => api.get(`/api/tv/replay/results/${caseKey}`)
 export const getReplayResult = (caseKey, timestamp) => api.get(`/api/tv/replay/result/${caseKey}/${timestamp}`)
+export const getRunResult = (caseKey, timestamp, runIndex) => api.get(`/api/tv/replay/result/${caseKey}/${timestamp}/run/${runIndex}`)
 
 // 测试计划
 export const getPlans = () => api.get('/api/tv/plans')
