@@ -61,6 +61,7 @@ export default function Replay() {
   const [selectedRun, setSelectedRun] = useState(null)
   const [runDetailData, setRunDetailData] = useState(null)
   const [runDetailLoading, setRunDetailLoading] = useState(false)
+  const [detailTimestamp, setDetailTimestamp] = useState(null)
   const timerRef = useRef(null)
 
   const fetchCaseDetail = async (caseKey) => {
@@ -163,8 +164,7 @@ export default function Replay() {
     setSelectedRun(runIndex)
     setRunDetailLoading(true)
     try {
-      const timestamp = detailData.timestamp || detailData.start_time
-      const res = await getRunResult(selectedCase, timestamp, runIndex)
+      const res = await getRunResult(selectedCase, detailTimestamp, runIndex)
       setRunDetailData(res.data?.data || res.data)
     } catch (e) {
       message.error(`获取第 ${runIndex} 轮详情失败`)
@@ -177,8 +177,10 @@ export default function Replay() {
   const handleViewDetail = async (record) => {
     setDetailLoading(true)
     setDetailVisible(true)
+    const ts = record.timestamp || record.time
+    setDetailTimestamp(ts)
     try {
-      const res = await getReplayResult(selectedCase, record.timestamp || record.time)
+      const res = await getReplayResult(selectedCase, ts)
       setDetailData(res.data?.data || res.data)
     } catch (e) {
       message.error('获取详情失败')
@@ -749,7 +751,7 @@ export default function Replay() {
           ) : '回放详情'
         }
         open={detailVisible}
-        onCancel={() => { setDetailVisible(false); setDetailData(null); setSelectedRun(null); setRunDetailData(null) }}
+        onCancel={() => { setDetailVisible(false); setDetailData(null); setSelectedRun(null); setRunDetailData(null); setDetailTimestamp(null) }}
         footer={null}
         width={860}
         loading={detailLoading}
