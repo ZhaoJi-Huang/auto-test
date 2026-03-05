@@ -1,6 +1,7 @@
 """
 Git 协作路由
-提供脚本仓库的 Git 操作 API：提交、拉取、状态查看、日志查看
+提供脚本目录的 Git 操作 API：提交、拉取、状态查看、日志查看
+操作主仓库，但只管理 scripts_repo_path 目录下的文件
 """
 
 import os
@@ -51,22 +52,42 @@ def create_git_routes(scripts_repo_path):
     """创建 Git 协作路由蓝图
 
     Args:
-        scripts_repo_path: 脚本仓库路径
+        scripts_repo_path: 脚本目录路径（在主仓库内）
 
     Returns:
         Flask Blueprint
     """
     bp = Blueprint("tv_git", __name__)
 
+    # 找到主仓库根目录和脚本目录的相对路径
+    abs_scripts = os.path.abspath(scripts_repo_path)
+    try:
+        result = subprocess.run(
+            ["git", "-C", abs_scripts, "rev-parse", "--show-toplevel"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=_CREATION_FLAGS,
+        )
+        repo_root = result.stdout.decode("utf-8", errors="ignore").strip()
+    except Exception:
+        repo_root = ""
+
+    if not repo_root:
+        # fallback: 假设 scripts 的父目录是仓库根
+        repo_root = os.path.dirname(abs_scripts)
+
+    repo_root = os.path.normpath(repo_root)
+    # 脚本目录相对于仓库根的路径（用于 git 过滤）
+    scripts_rel = os.path.relpath(abs_scripts, repo_root).replace("\\", "/")
+
     def _check_repo():
-        """检查脚本仓库是否为有效 Git 仓库"""
-        git_dir = os.path.join(scripts_repo_path, ".git")
+        """检查是否在有效 Git 仓库中"""
+        git_dir = os.path.join(repo_root, ".git")
         if not os.path.isdir(git_dir):
-            return False, "脚本目录不是 Git 仓库，请先初始化"
+            return False, "不在 Git 仓库中"
         return True, ""
 
     # ------------------------------------------------------------------
-    # POST /api/tv/git/commit — 提交脚本到仓库
+    # POST /api/tv/git/commit — 提交脚本变更到主仓库
     # ------------------------------------------------------------------
     @bp.route("/api/tv/git/commit", methods=["POST"])
     def git_commit():
@@ -79,40 +100,25 @@ def create_git_routes(scripts_repo_path):
         if not message:
             message = "更新测试脚本"
 
-        cases = body.get("cases", [])
-
         try:
-            # 添加文件
-            if cases:
-                # 仅添加指定用例目录
-                for case_key in cases:
-                    case_dir = os.path.join(scripts_repo_path, case_key)
-                    if os.path.isdir(case_dir):
-                        _run_git(["add", case_key], cwd=scripts_repo_path)
-                # 同时添加 plans 目录（如果有变更）
-                plans_dir = os.path.join(scripts_repo_path, "plans")
-                if os.path.isdir(plans_dir):
-                    _run_git(["add", "plans"], cwd=scripts_repo_path)
-            else:
-                # 添加所有变更
-                _run_git(["add", "-A"], cwd=scripts_repo_path)
+            # 只添加脚本目录下的变更
+            _run_git(["add", scripts_rel], cwd=repo_root)
 
             # 检查是否有暂存的变更
-            rc, staged, _ = _run_git(["diff", "--cached", "--name-only"], cwd=scripts_repo_path)
+            rc, staged, _ = _run_git(["diff", "--cached", "--name-only"], cwd=repo_root)
             if not staged:
                 return jsonify({"success": False, "error": "没有需要提交的变更"})
 
             file_count = len(staged.split("\n"))
 
             # 提交
-            rc, stdout, stderr = _run_git(["commit", "-m", message], cwd=scripts_repo_path)
+            rc, stdout, stderr = _run_git(["commit", "-m", message], cwd=repo_root)
             if rc != 0:
                 return jsonify({"success": False, "error": f"提交失败: {stderr or stdout}"})
 
             # 推送
-            rc, stdout, stderr = _run_git(["push"], cwd=scripts_repo_path, timeout=60)
+            rc, stdout, stderr = _run_git(["push"], cwd=repo_root, timeout=60)
             if rc != 0:
-                # 推送失败不影响提交结果，但需要提示
                 push_error = stderr or stdout
                 if "Authentication" in push_error or "auth" in push_error.lower():
                     push_msg = "提交成功但推送失败：需要配置 Git 认证信息"
@@ -135,7 +141,7 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": f"Git 操作异常: {e}"})
 
     # ------------------------------------------------------------------
-    # POST /api/tv/git/pull — 同步远程脚本
+    # POST /api/tv/git/pull — 同步远程变更
     # ------------------------------------------------------------------
     @bp.route("/api/tv/git/pull", methods=["POST"])
     def git_pull():
@@ -144,7 +150,7 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": err}), 400
 
         try:
-            rc, stdout, stderr = _run_git(["pull", "--ff-only"], cwd=scripts_repo_path, timeout=60)
+            rc, stdout, stderr = _run_git(["pull", "--ff-only"], cwd=repo_root, timeout=60)
             if rc != 0:
                 error_msg = stderr or stdout
                 if "conflict" in error_msg.lower():
@@ -167,7 +173,7 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": f"Git 操作异常: {e}"})
 
     # ------------------------------------------------------------------
-    # GET /api/tv/git/status — 查看 Git 状态
+    # GET /api/tv/git/status — 查看脚本目录的 Git 状态
     # ------------------------------------------------------------------
     @bp.route("/api/tv/git/status", methods=["GET"])
     def git_status():
@@ -176,7 +182,11 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": err}), 400
 
         try:
-            rc, stdout, stderr = _run_git(["status", "--porcelain"], cwd=scripts_repo_path)
+            # 只查看脚本目录的状态
+            rc, stdout, stderr = _run_git(
+                ["status", "--porcelain", "--", scripts_rel],
+                cwd=repo_root,
+            )
             if rc != 0:
                 return jsonify({"success": False, "error": f"获取状态失败: {stderr}"})
 
@@ -202,7 +212,7 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": f"Git 操作异常: {e}"})
 
     # ------------------------------------------------------------------
-    # GET /api/tv/git/log — 查看提交历史
+    # GET /api/tv/git/log — 查看脚本目录的提交历史
     # ------------------------------------------------------------------
     @bp.route("/api/tv/git/log", methods=["GET"])
     def git_log():
@@ -211,9 +221,12 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": err}), 400
 
         try:
-            rc, stdout, stderr = _run_git(["log", "--oneline", "-20"], cwd=scripts_repo_path)
+            # 只查看涉及脚本目录的提交
+            rc, stdout, stderr = _run_git(
+                ["log", "--oneline", "-20", "--", scripts_rel],
+                cwd=repo_root,
+            )
             if rc != 0:
-                # 空仓库没有提交记录
                 if "does not have any commits" in stderr:
                     return jsonify({"success": True, "data": []})
                 return jsonify({"success": False, "error": f"获取日志失败: {stderr}"})
