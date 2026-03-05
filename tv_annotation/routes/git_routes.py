@@ -182,20 +182,34 @@ def create_git_routes(scripts_repo_path):
             return jsonify({"success": False, "error": err}), 400
 
         try:
-            # 只查看脚本目录的状态
+            # 只查看脚本目录的状态，-uall 展开未跟踪目录为单个文件
             rc, stdout, stderr = _run_git(
-                ["status", "--porcelain", "--", scripts_rel],
+                ["status", "--porcelain", "-uall", "--", scripts_rel],
                 cwd=repo_root,
             )
             if rc != 0:
                 return jsonify({"success": False, "error": f"获取状态失败: {stderr}"})
 
+            _STATUS_MAP = {
+                "M": "modified", "A": "added", "D": "deleted",
+                "R": "renamed", "C": "copied", "??": "new",
+            }
+
             changed_files = []
             if stdout:
                 for line in stdout.split("\n"):
-                    line = line.strip()
-                    if line:
-                        changed_files.append(line)
+                    if not line or len(line) < 4:
+                        continue
+                    code = line[:2].strip()
+                    filepath = line[3:]
+                    # 去掉脚本目录前缀，只显示相对文件名
+                    prefix = scripts_rel + "/"
+                    if filepath.startswith(prefix):
+                        filepath = filepath[len(prefix):]
+                    changed_files.append({
+                        "status": _STATUS_MAP.get(code, code),
+                        "file": filepath,
+                    })
 
             return jsonify({
                 "success": True,
