@@ -116,19 +116,47 @@ def create_stats_routes(data_dir):
 
         avg_duration = round(total_duration / total_replays) if total_replays > 0 else 0
         pass_rate = round(passed / total_replays, 3) if total_replays > 0 else 0
+        fail_rate = round(failed / total_replays, 3) if total_replays > 0 else 0
+        abort_rate = round(aborted / total_replays, 3) if total_replays > 0 else 0
+
+        # 用例统计：补充 pass_rate，字段对齐前端
+        case_stats = []
+        for item in sorted(by_case_map.values(), key=lambda x: x["total"], reverse=True):
+            t = item["total"]
+            case_stats.append({
+                "case_key": item["jira_key"],
+                "total": t,
+                "passed": item["passed"],
+                "failed": item["failed"],
+                "pass_rate": round(item["passed"] / t, 3) if t > 0 else 0,
+            })
+
+        # 最近记录：字段对齐前端
+        recent_results = [{
+            "case_key": r["jira_key"],
+            "timestamp": r["replay_at"],
+            "result": r["result"],
+            "duration": r["duration_s"],
+            "executor": r["operator"],
+            "fail_reason": r["fail_reason"],
+        } for r in recent]
 
         return jsonify({
             "success": True,
             "data": {
-                "total_replays": total_replays,
-                "passed": passed,
-                "failed": failed,
-                "aborted": aborted,
-                "pass_rate": pass_rate,
-                "avg_duration_s": avg_duration,
-                "active_operators": len(operators),
-                "by_case": by_case,
-                "recent": recent,
+                "summary": {
+                    "total_runs": total_replays,
+                    "passed": passed,
+                    "failed": failed,
+                    "aborted": aborted,
+                    "pass_rate": pass_rate,
+                    "fail_rate": fail_rate,
+                    "abort_rate": abort_rate,
+                    "avg_duration": avg_duration,
+                    "active_operators": len(operators),
+                },
+                "case_stats": case_stats,
+                "recent_results": recent_results,
             }
         })
 
