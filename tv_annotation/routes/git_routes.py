@@ -109,10 +109,10 @@ def create_git_routes(scripts_repo_path):
                     full = os.path.normpath(os.path.join(abs_scripts, f))
                     if not full.startswith(abs_scripts + os.sep) and full != abs_scripts:
                         return jsonify({"success": False, "error": f"非法路径: {f}"}), 403
-                # 逐个添加选中的文件（使用相对于仓库根的路径）
+                # 逐个添加选中的文件（使用绝对路径，避免相对路径计算偏差）
                 for f in files:
-                    rel_path = (scripts_rel + "/" + f).replace("\\", "/")
-                    _run_git(["add", rel_path], cwd=repo_root)
+                    abs_file = os.path.normpath(os.path.join(abs_scripts, f))
+                    _run_git(["add", abs_file], cwd=repo_root)
             else:
                 # 全部添加
                 _run_git(["add", scripts_rel], cwd=repo_root)
@@ -208,6 +208,9 @@ def create_git_routes(scripts_repo_path):
                 "R": "renamed", "C": "copied", "??": "new",
             }
 
+            # 脚本目录名（最后一级），用于从路径中去掉前缀
+            scripts_dirname = os.path.basename(abs_scripts)
+
             changed_files = []
             if stdout:
                 for line in stdout.split("\n"):
@@ -216,9 +219,11 @@ def create_git_routes(scripts_repo_path):
                     code = line[:2].strip()
                     filepath = line[3:]
                     # 去掉脚本目录前缀，只显示相对文件名
-                    prefix = scripts_rel + "/"
-                    if filepath.startswith(prefix):
-                        filepath = filepath[len(prefix):]
+                    # 查找 "scripts_dirname/" 在路径中的位置并截取其后的部分
+                    marker = scripts_dirname + "/"
+                    idx = filepath.find(marker)
+                    if idx >= 0:
+                        filepath = filepath[idx + len(marker):]
                     changed_files.append({
                         "status": _STATUS_MAP.get(code, code),
                         "file": filepath,
