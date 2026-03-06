@@ -101,8 +101,21 @@ def create_git_routes(scripts_repo_path):
             message = "更新测试脚本"
 
         try:
-            # 只添加脚本目录下的变更
-            _run_git(["add", scripts_rel], cwd=repo_root)
+            # 选择性添加或全部添加
+            files = body.get("files")
+            if files and isinstance(files, list):
+                # 路径校验：确保所有文件都在脚本目录内
+                for f in files:
+                    full = os.path.normpath(os.path.join(abs_scripts, f))
+                    if not full.startswith(abs_scripts + os.sep) and full != abs_scripts:
+                        return jsonify({"success": False, "error": f"非法路径: {f}"}), 403
+                # 逐个添加选中的文件（使用相对于仓库根的路径）
+                for f in files:
+                    rel_path = (scripts_rel + "/" + f).replace("\\", "/")
+                    _run_git(["add", rel_path], cwd=repo_root)
+            else:
+                # 全部添加
+                _run_git(["add", scripts_rel], cwd=repo_root)
 
             # 检查是否有暂存的变更
             rc, staged, _ = _run_git(["diff", "--cached", "--name-only"], cwd=repo_root)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Button, Space, Table, Input, Tag, message, Alert, List, Modal } from 'antd'
+import { Card, Button, Space, Table, Input, Tag, message, Alert, List, Modal, Checkbox } from 'antd'
 import { SyncOutlined, SendOutlined, HistoryOutlined } from '@ant-design/icons'
 import { gitStatus, gitCommit, gitPull, gitLog, gitFileContent } from '../api'
 
@@ -12,6 +12,7 @@ export default function GitCollab() {
   const [fileModalVisible, setFileModalVisible] = useState(false)
   const [selectedFile, setSelectedFile] = useState('')
   const [fileContent, setFileContent] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState([])
 
   const fetchStatus = async () => {
     try {
@@ -39,11 +40,13 @@ export default function GitCollab() {
 
   const handleCommit = async () => {
     if (!commitMsg.trim()) { message.warning('请输入提交说明'); return }
+    if (selectedFiles.length === 0) { message.warning('请选择要提交的文件'); return }
     setLoading(true)
     try {
-      await gitCommit({ message: commitMsg })
+      await gitCommit({ message: commitMsg, files: selectedFiles })
       message.success('提交成功')
       setCommitMsg('')
+      setSelectedFiles([])
       fetchStatus()
       fetchLog()
     } catch (e) {
@@ -101,25 +104,45 @@ export default function GitCollab() {
         )}
 
         {changedFiles.length > 0 && (
-          <Card type="inner" title="变更文件列表" style={{ marginBottom: 16 }}>
+          <Card type="inner" title={
+            <Space>
+              <span>变更文件列表</span>
+              <Checkbox
+                checked={selectedFiles.length === changedFiles.length && changedFiles.length > 0}
+                indeterminate={selectedFiles.length > 0 && selectedFiles.length < changedFiles.length}
+                onChange={(e) => {
+                  setSelectedFiles(e.target.checked ? changedFiles.map(f => f.file || f.path || f) : [])
+                }}
+              >全选</Checkbox>
+            </Space>
+          } style={{ marginBottom: 16 }}>
             <List
               size="small"
               dataSource={changedFiles}
               renderItem={(item) => {
                 const fileName = item.file || item.path || item
+                const checked = selectedFiles.includes(fileName)
                 return (
-                  <List.Item
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => handleFileClick(fileName)}
-                  >
-                    <Tag color={
-                      (item.status || item.type) === 'modified' ? 'blue' :
-                      (item.status || item.type) === 'added' || (item.status || item.type) === 'new' ? 'green' :
-                      (item.status || item.type) === 'deleted' ? 'red' : 'default'
-                    }>
-                      {item.status || item.type || '变更'}
-                    </Tag>
-                    {fileName}
+                  <List.Item style={{ cursor: 'pointer' }}>
+                    <Checkbox
+                      checked={checked}
+                      onChange={(e) => {
+                        setSelectedFiles(prev =>
+                          e.target.checked ? [...prev, fileName] : prev.filter(f => f !== fileName)
+                        )
+                      }}
+                      style={{ marginRight: 8 }}
+                    />
+                    <span onClick={() => handleFileClick(fileName)} style={{ flex: 1 }}>
+                      <Tag color={
+                        (item.status || item.type) === 'modified' ? 'blue' :
+                        (item.status || item.type) === 'added' || (item.status || item.type) === 'new' ? 'green' :
+                        (item.status || item.type) === 'deleted' ? 'red' : 'default'
+                      }>
+                        {item.status || item.type || '变更'}
+                      </Tag>
+                      {fileName}
+                    </span>
                   </List.Item>
                 )
               }}
@@ -135,7 +158,7 @@ export default function GitCollab() {
             style={{ width: 400 }}
             rows={2}
           />
-          <Button type="primary" icon={<SendOutlined />} onClick={handleCommit} loading={loading} disabled={!hasChanges}>
+          <Button type="primary" icon={<SendOutlined />} onClick={handleCommit} loading={loading} disabled={!hasChanges || selectedFiles.length === 0}>
             提交
           </Button>
           <Button icon={<SyncOutlined />} onClick={handlePull} loading={pullLoading}>
