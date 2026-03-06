@@ -891,10 +891,30 @@ export default function TestPlan() {
             <Select
               mode="multiple"
               placeholder="选择要包含的用例"
-              options={cases.map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
               optionFilterProp="label"
               showSearch
-            />
+            >
+              {(() => {
+                const grouped = {}
+                const ungrouped = []
+                cases.forEach(c => {
+                  if (c.module) {
+                    if (!grouped[c.module]) grouped[c.module] = []
+                    grouped[c.module].push(c)
+                  } else {
+                    ungrouped.push(c)
+                  }
+                })
+                return [
+                  ...Object.entries(grouped).map(([mod, items]) => (
+                    <Select.OptGroup key={mod} label={mod}>
+                      {items.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)}
+                    </Select.OptGroup>
+                  )),
+                  ...ungrouped.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)
+                ]
+              })()}
+            </Select>
           </Form.Item>
           <Form.Item label="失败时停止" name="stop_on_failure" valuePropName="checked">
             <Switch />

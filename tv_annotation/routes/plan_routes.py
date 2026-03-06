@@ -88,7 +88,9 @@ def create_plan_routes(data_dir, scripts_repo_path):
 
     def _get_case_name(case_key):
         """获取用例名称"""
-        case_path = os.path.join(scripts_repo_path, case_key, "case.json")
+        from tv_annotation.routes.case_routes import get_case_dir
+        case_dir = get_case_dir(scripts_repo_path, case_key)
+        case_path = os.path.join(case_dir, "case.json")
         if os.path.exists(case_path):
             try:
                 with open(case_path, "r", encoding="utf-8") as f:
@@ -451,7 +453,8 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
             _plan_run_state["current_case_name"] = case_name
 
         # 检查脚本是否存在
-        case_dir_path = os.path.join(scripts_repo_path, case_key)
+        from tv_annotation.routes.case_routes import get_case_dir
+        case_dir_path = get_case_dir(scripts_repo_path, case_key)
         steps_file = os.path.join(case_dir_path, "steps.json")
         if not os.path.exists(steps_file):
             case_results.append({

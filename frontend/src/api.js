@@ -12,13 +12,19 @@ export const getInputDevices = () => api.get('/api/tv/input-devices', { timeout:
 // 用例管理
 export const getCases = (params) => api.get('/api/tv/cases', { params })
 export const getCase = (key) => api.get(`/api/tv/cases/${key}`)
-export const importByJql = (jql) => api.post('/api/tv/cases/import/jql', { jql })
-export const importByKey = (key) => api.post('/api/tv/cases/import/key', { key })
+export const importByJql = (jql, module) => api.post('/api/tv/cases/import/jql', { jql, module })
+export const importByKey = (key, module) => api.post('/api/tv/cases/import/key', { key, module })
 export const syncCase = (key) => api.post(`/api/tv/cases/sync/${key}`)
 export const createCase = (data) => api.post('/api/tv/cases/create', data)
 export const updateCase = (key, data) => api.put(`/api/tv/cases/${key}`, data)
 export const copyCase = (key) => api.post(`/api/tv/cases/${key}/copy`)
 export const deleteCase = (key) => api.delete(`/api/tv/cases/${key}`)
+
+// 模块管理
+export const getModules = () => api.get('/api/tv/modules')
+export const createModule = (name) => api.post('/api/tv/modules', { name })
+export const renameModule = (name, new_name) => api.put(`/api/tv/modules/${encodeURIComponent(name)}`, { new_name })
+export const deleteModule = (name) => api.delete(`/api/tv/modules/${encodeURIComponent(name)}`)
 
 // Jira 配置
 export const getJiraConfig = () => api.get('/api/tv/jira/config')

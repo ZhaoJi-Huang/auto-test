@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Table, Button, Space, Input, Select, Tag, Modal, Form, Drawer, message, Popconfirm, Descriptions, Tooltip } from 'antd'
-import { PlusOutlined, ImportOutlined, SyncOutlined, DeleteOutlined, EyeOutlined, EditOutlined, CopyOutlined, MinusCircleOutlined } from '@ant-design/icons'
-import { getCases, getCase, importByJql, importByKey, syncCase, createCase, updateCase, copyCase, deleteCase } from '../api'
+import { PlusOutlined, ImportOutlined, SyncOutlined, DeleteOutlined, EyeOutlined, EditOutlined, CopyOutlined, MinusCircleOutlined, FolderOutlined, FolderAddOutlined } from '@ant-design/icons'
+import { getCases, getCase, importByJql, importByKey, syncCase, createCase, updateCase, copyCase, deleteCase, getModules, createModule, renameModule, deleteModule } from '../api'
 
 const { Search } = Input
 
@@ -44,10 +44,21 @@ export default function CaseManagement() {
   const [editingCase, setEditingCase] = useState(null)
   const [detailDrawer, setDetailDrawer] = useState(false)
   const [caseDetail, setCaseDetail] = useState(null)
+  const [modules, setModules] = useState([])
+  const [moduleFilter, setModuleFilter] = useState(undefined)
+  const [moduleModal, setModuleModal] = useState(false)
+  const [newModuleName, setNewModuleName] = useState('')
   const [jqlForm] = Form.useForm()
   const [keyForm] = Form.useForm()
   const [createForm] = Form.useForm()
   const [editForm] = Form.useForm()
+
+  const fetchModules = async () => {
+    try {
+      const res = await getModules()
+      setModules(res.data?.data || [])
+    } catch (e) { /* ignore */ }
+  }
 
   const fetchCases = async () => {
     setLoading(true)
@@ -65,7 +76,7 @@ export default function CaseManagement() {
     }
   }
 
-  useEffect(() => { fetchCases() }, [keyword, sourceFilter])
+  useEffect(() => { fetchCases(); fetchModules() }, [keyword, sourceFilter])
 
   const handleViewDetail = async (key) => {
     try {
@@ -79,7 +90,7 @@ export default function CaseManagement() {
 
   const handleJqlImport = async (values) => {
     try {
-      await importByJql(values.jql)
+      await importByJql(values.jql, values.module)
       message.success('JQL 导入成功')
       setJqlModal(false)
       jqlForm.resetFields()
@@ -91,7 +102,7 @@ export default function CaseManagement() {
 
   const handleKeyImport = async (values) => {
     try {
-      await importByKey(values.key)
+      await importByKey(values.key, values.module)
       message.success('导入成功')
       setKeyModal(false)
       keyForm.resetFields()
@@ -124,6 +135,7 @@ export default function CaseManagement() {
       setEditingCase(data)
       editForm.setFieldsValue({
         name: data.name || data.summary || '',
+        module: data.module || undefined,
         description: data.description || '',
         precondition: data.precondition || '',
         test_steps: data.test_steps?.length ? data.test_steps : [],
@@ -183,6 +195,10 @@ export default function CaseManagement() {
   const columns = [
     { title: 'Key', dataIndex: 'key', key: 'key', width: 120 },
     { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
+    {
+      title: '模块', dataIndex: 'module', key: 'module', width: 120,
+      render: (v) => v ? <Tag icon={<FolderOutlined />}>{v}</Tag> : <span style={{ color: '#ccc' }}>-</span>
+    },
     {
       title: '来源', dataIndex: 'source', key: 'source', width: 100,
       render: (v) => <Tag color={v === 'jira' ? 'blue' : 'orange'}>{v === 'jira' ? 'Jira' : '自定义'}</Tag>
@@ -274,6 +290,9 @@ export default function CaseManagement() {
       <Form.Item label="用例名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
         <Input placeholder="用例名称" disabled={isEdit && editingCase?.source === 'jira'} />
       </Form.Item>
+      <Form.Item label="所属模块" name="module">
+        <Select placeholder="选择模块（可选）" allowClear options={modules.map(m => ({ label: m, value: m }))} />
+      </Form.Item>
       <Form.Item label="描述" name="description">
         <Input.TextArea rows={2} placeholder="用例描述" disabled={isEdit && editingCase?.source === 'jira'} />
       </Form.Item>
@@ -294,6 +313,14 @@ export default function CaseManagement() {
         <Space style={{ marginBottom: 16 }} wrap>
           <Search placeholder="搜索用例" allowClear onSearch={setKeyword} style={{ width: 250 }} />
           <Select
+            placeholder="模块筛选"
+            allowClear
+            style={{ width: 140 }}
+            value={moduleFilter}
+            onChange={(v) => setModuleFilter(v)}
+            options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
+          />
+          <Select
             placeholder="来源筛选"
             allowClear
             style={{ width: 120 }}
@@ -304,6 +331,7 @@ export default function CaseManagement() {
               { label: '自定义', value: 'custom' },
             ]}
           />
+          <Button icon={<FolderAddOutlined />} onClick={() => setModuleModal(true)}>管理模块</Button>
           <Button icon={<ImportOutlined />} onClick={() => setJqlModal(true)}>JQL 导入</Button>
           <Button icon={<ImportOutlined />} onClick={() => setKeyModal(true)}>单条导入</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>新建用例</Button>
@@ -311,7 +339,10 @@ export default function CaseManagement() {
 
         <Table
           columns={columns}
-          dataSource={cases}
+          dataSource={moduleFilter !== undefined ? cases.filter(c => {
+            if (moduleFilter === '__none__') return !c.module
+            return c.module === moduleFilter
+          }) : cases}
           rowKey="key"
           loading={loading}
           pagination={{ pageSize: 20 }}
@@ -323,6 +354,9 @@ export default function CaseManagement() {
           <Form.Item label="JQL 查询语句" name="jql" rules={[{ required: true, message: '请输入 JQL' }]}>
             <Input.TextArea rows={3} placeholder='project = TV AND type = "Test Case"' />
           </Form.Item>
+          <Form.Item label="导入到模块" name="module">
+            <Select placeholder="选择模块（可选）" allowClear options={modules.map(m => ({ label: m, value: m }))} />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -330,6 +364,9 @@ export default function CaseManagement() {
         <Form form={keyForm} onFinish={handleKeyImport} layout="vertical">
           <Form.Item label="Jira Key" name="key" rules={[{ required: true, message: '请输入 Jira Key' }]}>
             <Input placeholder="PROJ-101" />
+          </Form.Item>
+          <Form.Item label="导入到模块" name="module">
+            <Select placeholder="选择模块（可选）" allowClear options={modules.map(m => ({ label: m, value: m }))} />
           </Form.Item>
         </Form>
       </Modal>
@@ -358,6 +395,77 @@ export default function CaseManagement() {
       <Drawer title="用例详情" open={detailDrawer} onClose={() => setDetailDrawer(false)} width={600}>
         {renderDetailContent()}
       </Drawer>
+
+      {/* 模块管理 */}
+      <Modal
+        title="管理模块"
+        open={moduleModal}
+        onCancel={() => setModuleModal(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <Space style={{ marginBottom: 16 }}>
+          <Input
+            placeholder="新模块名称"
+            value={newModuleName}
+            onChange={e => setNewModuleName(e.target.value)}
+            onPressEnter={async () => {
+              if (!newModuleName.trim()) return
+              try {
+                await createModule(newModuleName.trim())
+                message.success('模块已创建')
+                setNewModuleName('')
+                fetchModules()
+              } catch (e) {
+                message.error(e.response?.data?.error || '创建失败')
+              }
+            }}
+          />
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={async () => {
+              if (!newModuleName.trim()) return
+              try {
+                await createModule(newModuleName.trim())
+                message.success('模块已创建')
+                setNewModuleName('')
+                fetchModules()
+              } catch (e) {
+                message.error(e.response?.data?.error || '创建失败')
+              }
+            }}
+          >创建</Button>
+        </Space>
+        <Table
+          dataSource={modules.map(m => ({ name: m }))}
+          rowKey="name"
+          size="small"
+          pagination={false}
+          columns={[
+            { title: '模块名称', dataIndex: 'name', key: 'name' },
+            {
+              title: '操作', key: 'action', width: 120,
+              render: (_, record) => (
+                <Space size={4}>
+                  <Popconfirm title="确定删除此模块？（仅空模块可删除）" onConfirm={async () => {
+                    try {
+                      await deleteModule(record.name)
+                      message.success('模块已删除')
+                      fetchModules()
+                      fetchCases()
+                    } catch (e) {
+                      message.error(e.response?.data?.error || '删除失败')
+                    }
+                  }}>
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              )
+            },
+          ]}
+        />
+      </Modal>
     </div>
   )
 }

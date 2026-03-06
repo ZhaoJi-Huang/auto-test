@@ -110,7 +110,8 @@ class ReplayEngine:
             return False, "回放已在进行中"
 
         # 加载步骤文件
-        steps_file = os.path.join(self._scripts_repo_path, case_key, "steps.json")
+        from tv_annotation.routes.case_routes import get_case_dir
+        steps_file = os.path.join(get_case_dir(self._scripts_repo_path, case_key), "steps.json")
         if not os.path.isfile(steps_file):
             return False, f"未找到步骤文件: {steps_file}"
 
@@ -173,7 +174,8 @@ class ReplayEngine:
             return False, "回放已在进行中"
 
         # 加载步骤文件
-        steps_file = os.path.join(self._scripts_repo_path, case_key, "steps.json")
+        from tv_annotation.routes.case_routes import get_case_dir
+        steps_file = os.path.join(get_case_dir(self._scripts_repo_path, case_key), "steps.json")
         if not os.path.isfile(steps_file):
             return False, f"未找到步骤文件: {steps_file}"
 

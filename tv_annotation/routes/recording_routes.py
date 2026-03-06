@@ -116,7 +116,8 @@ def create_recording_routes(device_config, scripts_repo_path):
     @bp.route("/api/tv/recording/saved_steps/<case_key>", methods=["GET"])
     def get_saved_steps(case_key):
         """从 steps.json 读取已保存的录制步骤"""
-        steps_path = os.path.join(scripts_repo_path, case_key, "steps.json")
+        from tv_annotation.routes.case_routes import get_case_dir
+        steps_path = os.path.join(get_case_dir(scripts_repo_path, case_key), "steps.json")
         if not os.path.exists(steps_path):
             return jsonify({"success": True, "data": []})
         try:
@@ -132,7 +133,8 @@ def create_recording_routes(device_config, scripts_repo_path):
 
     def _load_saved_steps(case_key):
         """读取 steps.json"""
-        path = os.path.join(scripts_repo_path, case_key, "steps.json")
+        from tv_annotation.routes.case_routes import get_case_dir
+        path = os.path.join(get_case_dir(scripts_repo_path, case_key), "steps.json")
         if not os.path.exists(path):
             return []
         with open(path, "r", encoding="utf-8") as f:
@@ -140,7 +142,8 @@ def create_recording_routes(device_config, scripts_repo_path):
 
     def _save_steps(case_key, steps):
         """保存 steps.json"""
-        case_dir = os.path.join(scripts_repo_path, case_key)
+        from tv_annotation.routes.case_routes import get_case_dir
+        case_dir = get_case_dir(scripts_repo_path, case_key)
         os.makedirs(case_dir, exist_ok=True)
         path = os.path.join(case_dir, "steps.json")
         tmp_path = path + ".tmp"

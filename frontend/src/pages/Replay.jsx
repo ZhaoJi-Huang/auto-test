@@ -447,9 +447,29 @@ export default function Replay() {
                 disabled={replaying}
                 showSearch
                 optionFilterProp="label"
-                options={cases.map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
                 allowClear
-              />
+              >
+                {(() => {
+                  const grouped = {}
+                  const ungrouped = []
+                  cases.forEach(c => {
+                    if (c.module) {
+                      if (!grouped[c.module]) grouped[c.module] = []
+                      grouped[c.module].push(c)
+                    } else {
+                      ungrouped.push(c)
+                    }
+                  })
+                  return [
+                    ...Object.entries(grouped).map(([mod, items]) => (
+                      <Select.OptGroup key={mod} label={mod}>
+                        {items.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)}
+                      </Select.OptGroup>
+                    )),
+                    ...ungrouped.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)
+                  ]
+                })()}
+              </Select>
               <Tooltip title="重复回放次数">
                 <Space size={4}>
                   <ReloadOutlined style={{ color: '#999' }} />

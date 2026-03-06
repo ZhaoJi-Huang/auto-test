@@ -735,13 +735,14 @@ class TVRecorder:
     def _save_steps(self, steps):
         """保存录制步骤到 steps.json
 
-        保存位置: {scripts_repo_path}/{case_key}/steps.json
+        保存位置: {scripts_repo_path}/[module/]{case_key}/steps.json
         """
         if not self._case_key:
             logger.warning("case_key 为空，跳过保存")
             return
 
-        case_dir = os.path.join(self._scripts_repo_path, self._case_key)
+        from tv_annotation.routes.case_routes import get_case_dir
+        case_dir = get_case_dir(self._scripts_repo_path, self._case_key)
         os.makedirs(case_dir, exist_ok=True)
 
         file_path = os.path.join(case_dir, "steps.json")
