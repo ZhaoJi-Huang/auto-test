@@ -264,4 +264,32 @@ def create_git_routes(scripts_repo_path):
             logger.error("Git log 异常: %s", e)
             return jsonify({"success": False, "error": f"Git 操作异常: {e}"})
 
+    # ------------------------------------------------------------------
+    # GET /api/tv/git/file-content — 查看文件内容
+    # ------------------------------------------------------------------
+    @bp.route("/api/tv/git/file-content", methods=["GET"])
+    def git_file_content():
+        file_path = request.args.get("file", "").strip()
+        if not file_path:
+            return jsonify({"success": False, "error": "缺少 file 参数"}), 400
+
+        # 路径校验：防止目录穿越
+        full_path = os.path.normpath(os.path.join(abs_scripts, file_path))
+        if not full_path.startswith(abs_scripts + os.sep) and full_path != abs_scripts:
+            return jsonify({"success": False, "error": "非法路径"}), 403
+
+        if not os.path.isfile(full_path):
+            return jsonify({"success": False, "error": "文件不存在"}), 404
+
+        try:
+            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            return jsonify({
+                "success": True,
+                "data": {"file": file_path, "content": content},
+            })
+        except Exception as e:
+            logger.error("读取文件异常: %s", e)
+            return jsonify({"success": False, "error": f"读取文件失败: {e}"})
+
     return bp

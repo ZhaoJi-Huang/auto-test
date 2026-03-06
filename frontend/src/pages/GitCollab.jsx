@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Button, Space, Table, Input, Tag, message, Alert, List } from 'antd'
+import { Card, Button, Space, Table, Input, Tag, message, Alert, List, Modal } from 'antd'
 import { SyncOutlined, SendOutlined, HistoryOutlined } from '@ant-design/icons'
-import { gitStatus, gitCommit, gitPull, gitLog } from '../api'
+import { gitStatus, gitCommit, gitPull, gitLog, gitFileContent } from '../api'
 
 export default function GitCollab() {
   const [status, setStatus] = useState(null)
@@ -9,6 +9,9 @@ export default function GitCollab() {
   const [commitMsg, setCommitMsg] = useState('')
   const [loading, setLoading] = useState(false)
   const [pullLoading, setPullLoading] = useState(false)
+  const [fileModalVisible, setFileModalVisible] = useState(false)
+  const [selectedFile, setSelectedFile] = useState('')
+  const [fileContent, setFileContent] = useState('')
 
   const fetchStatus = async () => {
     try {
@@ -64,6 +67,18 @@ export default function GitCollab() {
     }
   }
 
+  const handleFileClick = async (fileName) => {
+    setSelectedFile(fileName)
+    setFileContent('')
+    setFileModalVisible(true)
+    try {
+      const res = await gitFileContent(fileName)
+      setFileContent(res.data?.data?.content ?? '无法读取内容')
+    } catch (e) {
+      setFileContent('读取失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
   const changedFiles = status?.files || status?.changed_files || []
   const hasChanges = changedFiles.length > 0 || status?.has_changes
 
@@ -90,18 +105,24 @@ export default function GitCollab() {
             <List
               size="small"
               dataSource={changedFiles}
-              renderItem={(item) => (
-                <List.Item>
-                  <Tag color={
-                    (item.status || item.type) === 'modified' ? 'blue' :
-                    (item.status || item.type) === 'added' || (item.status || item.type) === 'new' ? 'green' :
-                    (item.status || item.type) === 'deleted' ? 'red' : 'default'
-                  }>
-                    {item.status || item.type || '变更'}
-                  </Tag>
-                  {item.file || item.path || item}
-                </List.Item>
-              )}
+              renderItem={(item) => {
+                const fileName = item.file || item.path || item
+                return (
+                  <List.Item
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => handleFileClick(fileName)}
+                  >
+                    <Tag color={
+                      (item.status || item.type) === 'modified' ? 'blue' :
+                      (item.status || item.type) === 'added' || (item.status || item.type) === 'new' ? 'green' :
+                      (item.status || item.type) === 'deleted' ? 'red' : 'default'
+                    }>
+                      {item.status || item.type || '变更'}
+                    </Tag>
+                    {fileName}
+                  </List.Item>
+                )
+              }}
             />
           </Card>
         )}
@@ -132,6 +153,18 @@ export default function GitCollab() {
           pagination={{ pageSize: 20 }}
         />
       </Card>
+
+      <Modal
+        title={selectedFile}
+        open={fileModalVisible}
+        onCancel={() => setFileModalVisible(false)}
+        footer={null}
+        width={800}
+      >
+        <pre style={{ maxHeight: 500, overflow: 'auto', background: '#f5f5f5', padding: 12, borderRadius: 4, fontSize: 13 }}>
+          {fileContent || '加载中...'}
+        </pre>
+      </Modal>
     </div>
   )
 }
