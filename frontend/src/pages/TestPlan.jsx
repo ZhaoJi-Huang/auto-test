@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, Select, Switch, Tag, message, Popconfirm, Progress, Descriptions, Badge, Row, Col, Tooltip, Drawer, Image, Collapse, Statistic, Timeline } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, EditOutlined, DeleteOutlined, EyeOutlined, StopOutlined, EyeInvisibleOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { getPlans, getPlan, createPlan, updatePlan, deletePlan, runPlan, stopPlan, getPlanStatus, getPlanResults, getCases, getReplayResult, getRunResult } from '../api'
+import { getPlans, getPlan, createPlan, updatePlan, deletePlan, runPlan, stopPlan, getPlanStatus, getPlanResults, getCases, getModules, getReplayResult, getRunResult } from '../api'
 
 // --- 复用回放页面的展示组件 ---
 const stepTypeLabels = {
@@ -38,6 +38,8 @@ const getScreenshotUrl = (screenshotPath) => {
 export default function TestPlan() {
   const [plans, setPlans] = useState([])
   const [cases, setCases] = useState([])
+  const [modules, setModules] = useState([])
+  const [planModuleFilter, setPlanModuleFilter] = useState(undefined)
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [editingPlan, setEditingPlan] = useState(null)
@@ -71,6 +73,13 @@ export default function TestPlan() {
     }
   }
 
+  const fetchModules = async () => {
+    try {
+      const res = await getModules()
+      setModules(res.data?.data || [])
+    } catch (e) { /* ignore */ }
+  }
+
   const fetchCases = async () => {
     try {
       const res = await getCases()
@@ -97,6 +106,7 @@ export default function TestPlan() {
   useEffect(() => {
     fetchPlans()
     fetchCases()
+    fetchModules()
   }, [])
 
   useEffect(() => {
@@ -887,34 +897,29 @@ export default function TestPlan() {
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={2} placeholder="计划描述" />
           </Form.Item>
+          <Form.Item label="按模块筛选">
+            <Select
+              placeholder="全部模块"
+              allowClear
+              value={planModuleFilter}
+              onChange={(v) => setPlanModuleFilter(v)}
+              options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
+            />
+          </Form.Item>
           <Form.Item label="选择用例" name="cases" rules={[{ required: true, message: '请选择用例' }]}>
             <Select
               mode="multiple"
               placeholder="选择要包含的用例"
               optionFilterProp="label"
               showSearch
-            >
-              {(() => {
-                const grouped = {}
-                const ungrouped = []
-                cases.forEach(c => {
-                  if (c.module) {
-                    if (!grouped[c.module]) grouped[c.module] = []
-                    grouped[c.module].push(c)
-                  } else {
-                    ungrouped.push(c)
-                  }
+              options={cases
+                .filter(c => {
+                  if (planModuleFilter === undefined) return true
+                  if (planModuleFilter === '__none__') return !c.module
+                  return c.module === planModuleFilter
                 })
-                return [
-                  ...Object.entries(grouped).map(([mod, items]) => (
-                    <Select.OptGroup key={mod} label={mod}>
-                      {items.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)}
-                    </Select.OptGroup>
-                  )),
-                  ...ungrouped.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)
-                ]
-              })()}
-            </Select>
+                .map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
+            />
           </Form.Item>
           <Form.Item label="失败时停止" name="stop_on_failure" valuePropName="checked">
             <Switch />

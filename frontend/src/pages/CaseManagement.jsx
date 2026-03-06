@@ -151,6 +151,10 @@ export default function CaseManagement() {
       if (values.test_steps) {
         values.test_steps = values.test_steps.filter(s => s.step || s.expectedResult)
       }
+      // 确保 module 字段始终发送（清空时发送空字符串）
+      if (values.module === undefined || values.module === null) {
+        values.module = ''
+      }
       await updateCase(editingCase.key, values)
       message.success('用例已更新')
       setEditModal(false)

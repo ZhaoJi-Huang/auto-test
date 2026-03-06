@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Select, Button, Space, Table, Input, InputNumber, Tag, message, Alert, Divider, Radio, Modal, Popconfirm, Collapse } from 'antd'
 import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined, WarningOutlined, ThunderboltOutlined, LoadingOutlined, CheckCircleOutlined, ClockCircleOutlined, StopOutlined } from '@ant-design/icons'
-import { getCases, getCase, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep, quickReplay, stopQuickReplay, getReplayStatus } from '../api'
+import { getCases, getCase, getModules, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep, quickReplay, stopQuickReplay, getReplayStatus } from '../api'
 
 const COMMON_KEYS = [
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'SETTING',
@@ -13,6 +13,8 @@ const COMMON_KEYS = [
 
 export default function Recording() {
   const [cases, setCases] = useState([])
+  const [modules, setModules] = useState([])
+  const [selectedModule, setSelectedModule] = useState(undefined)
   const [selectedCase, setSelectedCase] = useState(null)
   const [caseDetail, setCaseDetail] = useState(null)
   const [recording, setRecording] = useState(false)
@@ -40,6 +42,13 @@ export default function Recording() {
   const [modalAiType, setModalAiType] = useState('ai_navigate')
   const [modalAiPrompt, setModalAiPrompt] = useState('')
   const [modalWaitMs, setModalWaitMs] = useState(3000)
+
+  const fetchModules = async () => {
+    try {
+      const res = await getModules()
+      setModules(res.data?.data || [])
+    } catch (e) { /* ignore */ }
+  }
 
   const fetchCases = async () => {
     try {
@@ -86,6 +95,7 @@ export default function Recording() {
 
   useEffect(() => {
     fetchCases()
+    fetchModules()
     fetchStatus()
   }, [])
 
@@ -506,35 +516,30 @@ export default function Recording() {
         <Space size="middle" wrap>
           <span style={{ fontWeight: 'bold' }}>选择用例：</span>
           <Select
+            style={{ width: 140 }}
+            placeholder="选择模块"
+            value={selectedModule}
+            onChange={(v) => { setSelectedModule(v); setSelectedCase(null); setCaseDetail(null); setSavedSteps([]) }}
+            disabled={recording || quickReplaying}
+            allowClear
+            options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
+          />
+          <Select
             style={{ width: 300 }}
-            placeholder="请选择要录制的用例"
+            placeholder="请选择用例"
             value={selectedCase}
             onChange={handleCaseChange}
             disabled={recording || quickReplaying}
             showSearch
             optionFilterProp="label"
-          >
-            {(() => {
-              const grouped = {}
-              const ungrouped = []
-              cases.forEach(c => {
-                if (c.module) {
-                  if (!grouped[c.module]) grouped[c.module] = []
-                  grouped[c.module].push(c)
-                } else {
-                  ungrouped.push(c)
-                }
+            options={cases
+              .filter(c => {
+                if (selectedModule === undefined) return true
+                if (selectedModule === '__none__') return !c.module
+                return c.module === selectedModule
               })
-              return [
-                ...Object.entries(grouped).map(([mod, items]) => (
-                  <Select.OptGroup key={mod} label={mod}>
-                    {items.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)}
-                  </Select.OptGroup>
-                )),
-                ...ungrouped.map(c => <Select.Option key={c.key} value={c.key} label={`${c.key} - ${c.name}`}>{c.key} - {c.name}</Select.Option>)
-              ]
-            })()}
-          </Select>
+              .map(c => ({ label: `${c.key} - ${c.name}`, value: c.key }))}
+          />
           {!recording && !quickReplaying ? (
             <>
               <Button type="primary" icon={<PlayCircleOutlined />}
