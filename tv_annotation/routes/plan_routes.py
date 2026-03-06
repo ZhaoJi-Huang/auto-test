@@ -13,6 +13,7 @@ import threading
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
+from common.audit_log import audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,7 @@ def create_plan_routes(data_dir, scripts_repo_path):
         if not os.path.exists(path):
             return jsonify({"success": False, "error": f"计划 {plan_id} 不存在"}), 404
         os.remove(path)
+        audit_log("计划删除", plan_id)
         return jsonify({"success": True, "message": f"计划 {plan_id} 已删除"})
 
     # ------------------------------------------------------------------
@@ -232,6 +234,7 @@ def create_plan_routes(data_dir, scripts_repo_path):
         )
         thread.start()
 
+        audit_log("计划执行", plan_id, f"{plan.get('name', '')}, {len(plan.get('cases', []))}个用例, repeat={repeat}")
         return jsonify({"success": True, "message": "计划执行已启动"})
 
     # ------------------------------------------------------------------
@@ -636,6 +639,7 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
         with open(result_path, "w", encoding="utf-8") as f:
             json.dump(plan_result, f, ensure_ascii=False, indent=2)
         logger.info("计划 %s 执行完成，结果已保存: %s", plan_id, result_path)
+        audit_log("计划完成", plan_id, f"通过{passed}/{total_cases}, 耗时{total_duration}s")
     except Exception as e:
         logger.error("保存计划结果失败: %s", e)
 

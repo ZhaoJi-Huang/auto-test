@@ -3,6 +3,7 @@
 """
 
 from flask import Blueprint, request, jsonify
+from common.audit_log import audit_log
 
 
 def create_config_routes(device_config, data_dir):
@@ -43,6 +44,11 @@ def create_config_routes(device_config, data_dir):
         # 持久化
         from common.config_manager import save_device_config
         save_device_config(data_dir, device_config)
+
+        # 审计日志：记录配置变更
+        changes = [f"{k}={data[k]}" for k in ["tv_ip", "serial_port", "device_id", "key_event_device"] if k in data]
+        if changes:
+            audit_log("配置变更", "", ", ".join(changes))
 
         # 如果有新 IP，尝试 ADB 连接
         tv_ip = device_config.get("tv_ip")

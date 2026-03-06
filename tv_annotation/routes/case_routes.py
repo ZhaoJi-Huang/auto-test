@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
+from common.audit_log import audit_log
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,7 @@ def create_case_routes(data_dir, scripts_repo_path):
             update_index_entry(scripts_repo_path, entry)
             imported.append({"key": key, "summary": case.get("summary", "")})
 
+        audit_log("JQL批量导入", "", f"导入{len(imported)}条用例")
         return jsonify({
             "success": True,
             "message": f"成功导入 {len(imported)} 条用例",
@@ -384,6 +386,7 @@ def create_case_routes(data_dir, scripts_repo_path):
         entry = _build_index_entry(scripts_repo_path, case, module=module)
         update_index_entry(scripts_repo_path, entry)
 
+        audit_log("用例创建", key, case["name"])
         return jsonify({
             "success": True,
             "message": f"自定义用例 {key} 已创建",
@@ -528,6 +531,7 @@ def create_case_routes(data_dir, scripts_repo_path):
         index = [item for item in index if item.get("key") != key]
         save_index(scripts_repo_path, index)
 
+        audit_log("用例删除", key)
         return jsonify({"success": True, "message": f"用例 {key} 已删除"})
 
     # ========== Jira 配置管理 ==========

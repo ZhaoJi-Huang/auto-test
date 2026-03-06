@@ -7,6 +7,7 @@ import json
 import os
 
 from flask import Blueprint, jsonify, request, send_file
+from common.audit_log import audit_log
 
 # 模块级共享引擎实例（供 recording_routes 快速回放复用）
 _shared_engine = {"instance": None, "device_config": None, "data_dir": None, "scripts_repo_path": None}
@@ -77,6 +78,8 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
             repeat=repeat,
             stop_on_failure=stop_on_failure,
         )
+        if ok:
+            audit_log("回放开始", case_key, f"repeat={repeat}")
         return jsonify({"success": ok, "message": msg})
 
     @bp.route("/api/tv/replay/stop", methods=["POST"])
@@ -87,6 +90,8 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
             return jsonify({"success": False, "error": "回放引擎未初始化"})
 
         ok, msg = engine.stop()
+        if ok:
+            audit_log("回放停止")
         return jsonify({"success": ok, "message": msg})
 
     @bp.route("/api/tv/replay/status", methods=["GET"])

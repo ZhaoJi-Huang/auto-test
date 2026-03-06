@@ -8,6 +8,7 @@ import os
 
 from flask import Blueprint, request, jsonify
 from tv_annotation.recorder import TVRecorder
+from common.audit_log import audit_log
 
 # 模块级录制器实例（单例，由 create_recording_routes 初始化）
 _recorder = None
@@ -64,6 +65,7 @@ def create_recording_routes(device_config, scripts_repo_path):
         ok, msg = recorder.start(case_key)
 
         if ok:
+            audit_log("录制开始", case_key)
             return jsonify({"success": True, "message": msg})
         else:
             return jsonify({"success": False, "error": msg})
@@ -77,6 +79,7 @@ def create_recording_routes(device_config, scripts_repo_path):
         ok, msg, steps = recorder.stop()
 
         if ok:
+            audit_log("录制停止", recorder.case_key or "", f"共{len(steps)}步")
             return jsonify({
                 "success": True,
                 "message": msg,

@@ -6,8 +6,11 @@ TV 自动化测试录制回放工具 - 后端服务入口
 import os
 import sys
 import logging
+import logging.handlers
 import atexit
 import json
+import time
+import shutil
 
 # ==================== 自动更新 ====================
 
@@ -72,7 +75,6 @@ _auto_update()
 LOG_DIR = os.path.join(BACKEND_DIR, "log")
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
-open(LOG_FILE, "w").close()
 
 
 class TeeOutput:
@@ -114,14 +116,16 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8"),
+        logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8"
+        ),
         logging.StreamHandler(sys.stdout),
     ],
 )
 
 # ==================== Flask 应用 ====================
 
-from flask import Flask, send_from_directory, jsonify
+from flask import Flask, send_from_directory, jsonify, request as flask_request
 
 # 加载应用配置
 from common.config_manager import load_app_config
@@ -132,6 +136,10 @@ SCRIPTS_REPO_PATH = app_config["scripts_repo_path"]
 
 # 确保目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# 初始化审计日志
+from common.audit_log import init_audit_log
+init_audit_log(DATA_DIR)
 os.makedirs(os.path.join(DATA_DIR, "replay"), exist_ok=True)
 
 # 尝试创建脚本仓库目录（如果不存在）
@@ -147,13 +155,43 @@ if not os.path.exists(static_folder):
 app = Flask(__name__, static_folder=static_folder, static_url_path="")
 app.config["SECRET_KEY"] = "tv-automation-tool-secret"
 
+api_logger = logging.getLogger("api")
+
+
+@app.before_request
+def _log_request_start():
+    flask_request._start_time = time.time()
+
 
 @app.after_request
 def after_request(response):
-    """添加 CORS 头"""
+    """添加 CORS 头 + API 请求日志"""
     response.headers.add("Access-Control-Allow-Origin", "*")
     response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Version")
     response.headers.add("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS")
+
+    # API 请求日志
+    if flask_request.path.startswith("/api/") and flask_request.method != "OPTIONS":
+        duration = time.time() - getattr(flask_request, '_start_time', time.time())
+        parts = [f"{flask_request.method} {flask_request.path} -> {response.status_code} ({duration:.2f}s)"]
+
+        # Query 参数
+        if flask_request.args:
+            parts.append(f"params={dict(flask_request.args)}")
+
+        # Request Body（仅小于 2KB 的 JSON）
+        if flask_request.is_json and flask_request.content_length and flask_request.content_length < 2048:
+            body = flask_request.get_json(silent=True)
+            if body:
+                parts.append(f"body={body}")
+
+        # 失败时记录错误摘要
+        if response.status_code >= 400:
+            error_info = response.get_data(as_text=True)[:500]
+            parts.append(f"error={error_info}")
+
+        api_logger.info(" ".join(parts))
+
     return response
 
 
@@ -167,6 +205,13 @@ def index():
     if not os.path.exists(index_path):
         return "<h1>Frontend not built</h1><p>cd frontend && npm run build</p>", 404
     return send_from_directory(static_dir, "index.html")
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """全局异常处理：返回 JSON 而非 HTML 错误页"""
+    api_logger.exception(f"未捕获异常: {flask_request.method} {flask_request.path}")
+    return jsonify({"success": False, "error": f"服务器内部错误: {str(e)}"}), 500
 
 
 @app.errorhandler(404)
@@ -194,6 +239,53 @@ def api_status():
         "data_dir": DATA_DIR,
         "scripts_repo_path": SCRIPTS_REPO_PATH,
     })
+
+
+@app.route("/api/health")
+def health_check():
+    """健康检查：主动探测各依赖组件的实际状态"""
+    checks = {}
+
+    # 1. ADB 设备连接
+    try:
+        from common.config_manager import load_device_config
+        from common.adb_utils import check_adb_device
+        device_config = load_device_config(DATA_DIR)
+        tv_ip = device_config.get("tv_ip", "")
+        if tv_ip:
+            ok, msg = check_adb_device(tv_ip)
+            checks["adb_device"] = {"status": "connected" if ok else "disconnected", "detail": msg}
+        else:
+            checks["adb_device"] = {"status": "not_configured"}
+    except Exception as e:
+        checks["adb_device"] = {"status": "error", "detail": str(e)}
+
+    # 2. 采集卡状态
+    try:
+        from tv_annotation.capture_card import CaptureCardManager
+        cc = CaptureCardManager()
+        checks["capture_card"] = {"status": "running" if cc.is_running else "stopped"}
+    except Exception as e:
+        checks["capture_card"] = {"status": "error", "detail": str(e)}
+
+    # 3. 脚本仓库
+    scripts_git = os.path.join(SCRIPTS_REPO_PATH, ".git")
+    checks["scripts_repo"] = {
+        "status": "ok" if os.path.isdir(scripts_git) else ("exists" if os.path.isdir(SCRIPTS_REPO_PATH) else "missing"),
+    }
+
+    # 4. 数据目录可写
+    checks["data_dir_writable"] = os.access(DATA_DIR, os.W_OK)
+
+    # 5. 磁盘剩余空间
+    try:
+        usage = shutil.disk_usage(DATA_DIR)
+        checks["disk_free_mb"] = usage.free // (1024 * 1024)
+    except Exception:
+        checks["disk_free_mb"] = None
+
+    healthy = checks.get("data_dir_writable", False)
+    return jsonify({"healthy": healthy, "checks": checks}), 200 if healthy else 503
 
 
 # ==================== 注册 TV 模块路由 ====================
