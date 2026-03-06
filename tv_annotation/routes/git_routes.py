@@ -30,7 +30,7 @@ def _run_git(args, cwd, timeout=30):
     Returns:
         (returncode, stdout, stderr)
     """
-    cmd = ["git", "-C", cwd] + args
+    cmd = ["git", "-C", cwd, "-c", "core.quotePath=false"] + args
     try:
         result = subprocess.run(
             cmd,
