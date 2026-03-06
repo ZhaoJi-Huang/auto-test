@@ -1,0 +1,23 @@
+{
+  "key": "SQAST-24894",
+  "source": "jira",
+  "summary": "图效模式菜单为电脑，检查右侧气泡提示",
+  "description": "",
+  "issuetype": "测试用例",
+  "priority": "P3",
+  "labels": [],
+  "reporter": "胥国栋",
+  "created": "2025-07-01T14:28:31.000+0800",
+  "updated": "2025-09-09T20:39:45.000+0800",
+  "customfield_10107": "系统基线用例库/设置/中国区设置/图像/图效/映射逻辑/气泡映射",
+  "precondition": "1、与毕加索（TSR计算画质图效）互斥\n2、在HDMI信源下播放SDR信号",
+  "test_steps": [
+    {
+      "sequenceNumber": "1",
+      "step": "1、按设置键，选择全部设置，进入设置-图像页面\n2、切换图效模式为电脑，检查右侧气泡提示",
+      "expectedResult": "2、图效模式右侧出现气泡提示语：适用于把电视作为电脑显示器使用，显示文字更清晰，色温更柔和",
+      "stepData": ""
+    }
+  ],
+  "imported_at": "2026-02-26T20:06:20"
+}

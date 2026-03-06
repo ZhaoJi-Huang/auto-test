@@ -1,0 +1,138 @@
+[
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "SETTING",
+        "adb_command": "input keyevent 4077"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.cyberui/com.tcl.cyberui.MainActivity",
+    "after_activity": "com.android.systemui"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "ENTER",
+        "adb_command": "input keyevent KEYCODE_ENTER"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.android.systemui",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "DOWN",
+        "adb_command": "input keyevent KEYCODE_DPAD_DOWN",
+        "is_long_press": true,
+        "duration_ms": 544
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.settings",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "UP",
+        "adb_command": "input keyevent KEYCODE_DPAD_UP",
+        "is_long_press": true,
+        "duration_ms": 610
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.settings",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "ENTER",
+        "adb_command": "input keyevent KEYCODE_ENTER"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.settings",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "RIGHT",
+        "adb_command": "input keyevent KEYCODE_DPAD_RIGHT"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.settings",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "LEFT",
+        "adb_command": "input keyevent KEYCODE_DPAD_LEFT"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.settings",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "LEFT",
+        "adb_command": "input keyevent KEYCODE_DPAD_LEFT"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "com.tcl.settings",
+    "after_activity": "com.tcl.settings"
+  },
+  {
+    "type": "ai_navigate",
+    "prompt": "图效模式修改为办公"
+  },
+  {
+    "type": "ai_verify",
+    "prompt": "图效模式为办公模式"
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "BACK",
+        "adb_command": "input keyevent KEYCODE_BACK"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "",
+    "after_activity": ""
+  },
+  {
+    "type": "wait",
+    "duration_ms": 5000
+  },
+  {
+    "type": "key_group",
+    "commands": [
+      {
+        "key": "HOME",
+        "adb_command": "input keyevent KEYCODE_HOME"
+      }
+    ],
+    "interval_ms": 0,
+    "before_activity": "",
+    "after_activity": "com.tcl.cyberui/com.tcl.cyberui.MainActivity"
+  }
+]
