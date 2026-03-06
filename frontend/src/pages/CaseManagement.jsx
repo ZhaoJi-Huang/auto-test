@@ -319,6 +319,8 @@ export default function CaseManagement() {
           <Select
             placeholder="模块筛选"
             allowClear
+            showSearch
+            optionFilterProp="label"
             style={{ width: 140 }}
             value={moduleFilter}
             onChange={(v) => setModuleFilter(v)}

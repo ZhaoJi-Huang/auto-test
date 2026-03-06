@@ -522,6 +522,8 @@ export default function Recording() {
             onChange={(v) => { setSelectedModule(v); setSelectedCase(null); setCaseDetail(null); setSavedSteps([]) }}
             disabled={recording || quickReplaying}
             allowClear
+            showSearch
+            optionFilterProp="label"
             options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
           />
           <Select

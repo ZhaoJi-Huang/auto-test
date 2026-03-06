@@ -456,6 +456,8 @@ export default function Replay() {
                 onChange={(v) => { setSelectedModule(v); setSelectedCase(null) }}
                 disabled={replaying}
                 allowClear
+                showSearch
+                optionFilterProp="label"
                 options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
               />
               <Select

@@ -901,6 +901,8 @@ export default function TestPlan() {
             <Select
               placeholder="全部模块"
               allowClear
+              showSearch
+              optionFilterProp="label"
               value={planModuleFilter}
               onChange={(v) => setPlanModuleFilter(v)}
               options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
