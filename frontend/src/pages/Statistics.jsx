@@ -30,7 +30,7 @@ export default function Statistics() {
 
   useEffect(() => { fetchStats(); fetchModules() }, [])
 
-  const summary = stats?.summary || {}
+  const rawSummary = stats?.summary || {}
   const caseStats = stats?.case_stats || []
   const recentResults = stats?.recent_results || []
 
@@ -39,6 +39,25 @@ export default function Statistics() {
     if (moduleFilter === '__none__') return list.filter(r => !r.module)
     return list.filter(r => r.module === moduleFilter)
   }
+
+  // 根据模块筛选重新计算汇总指标
+  const summary = (() => {
+    if (moduleFilter === undefined) return rawSummary
+    const filtered = filterByModule(caseStats)
+    const totalRuns = filtered.reduce((s, c) => s + c.total, 0)
+    const passed = filtered.reduce((s, c) => s + c.passed, 0)
+    const failed = filtered.reduce((s, c) => s + c.failed, 0)
+    const aborted = totalRuns - passed - failed
+    const filteredRecent = filterByModule(recentResults)
+    const totalDuration = filteredRecent.reduce((s, r) => s + (r.duration || 0), 0)
+    return {
+      total_runs: totalRuns,
+      pass_rate: totalRuns > 0 ? passed / totalRuns : 0,
+      fail_rate: totalRuns > 0 ? failed / totalRuns : 0,
+      abort_rate: totalRuns > 0 ? aborted / totalRuns : 0,
+      avg_duration: totalRuns > 0 ? Math.round(totalDuration / totalRuns) : 0,
+    }
+  })()
 
   const caseColumns = [
     { title: '用例 Key', dataIndex: 'case_key', key: 'case_key' },
@@ -72,7 +91,21 @@ export default function Statistics() {
 
   return (
     <div>
-      <h2>统计报表</h2>
+      <h2 style={{ marginBottom: 16 }}>统计报表</h2>
+
+      <Space style={{ marginBottom: 16 }}>
+        <span>模块筛选：</span>
+        <Select
+          placeholder="全部模块"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 160 }}
+          value={moduleFilter}
+          onChange={(v) => setModuleFilter(v)}
+          options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
+        />
+      </Space>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={4}>
@@ -101,20 +134,6 @@ export default function Statistics() {
           </Card>
         </Col>
       </Row>
-
-      <Space style={{ marginBottom: 16 }}>
-        <span>模块筛选：</span>
-        <Select
-          placeholder="全部模块"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          style={{ width: 160 }}
-          value={moduleFilter}
-          onChange={(v) => setModuleFilter(v)}
-          options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
-        />
-      </Space>
 
       <Card title="各用例统计" style={{ marginBottom: 16 }}>
         <Table
