@@ -39,11 +39,12 @@ def _scan_results(data_dir):
     return results
 
 
-def create_stats_routes(data_dir):
+def create_stats_routes(data_dir, scripts_repo_path=None):
     """创建统计路由蓝图
 
     Args:
         data_dir: 数据根目录
+        scripts_repo_path: 脚本仓库路径（用于获取模块信息）
 
     Returns:
         Flask Blueprint
@@ -56,6 +57,17 @@ def create_stats_routes(data_dir):
     @bp.route("/api/tv/stats", methods=["GET"])
     def get_stats():
         results = _scan_results(data_dir)
+
+        # 构建 case_key -> module 映射
+        module_map = {}
+        if scripts_repo_path:
+            try:
+                from tv_annotation.routes.case_routes import load_index
+                index = load_index(scripts_repo_path)
+                for item in index:
+                    module_map[item.get("key", "")] = item.get("module") or ""
+            except Exception:
+                pass
 
         total_replays = len(results)
         passed = 0
@@ -119,12 +131,13 @@ def create_stats_routes(data_dir):
         fail_rate = round(failed / total_replays, 3) if total_replays > 0 else 0
         abort_rate = round(aborted / total_replays, 3) if total_replays > 0 else 0
 
-        # 用例统计：补充 pass_rate，字段对齐前端
+        # 用例统计：补充 pass_rate 和 module，字段对齐前端
         case_stats = []
         for item in sorted(by_case_map.values(), key=lambda x: x["total"], reverse=True):
             t = item["total"]
             case_stats.append({
                 "case_key": item["jira_key"],
+                "module": module_map.get(item["jira_key"], ""),
                 "total": t,
                 "passed": item["passed"],
                 "failed": item["failed"],
@@ -134,6 +147,7 @@ def create_stats_routes(data_dir):
         # 最近记录：字段对齐前端
         recent_results = [{
             "case_key": r["jira_key"],
+            "module": module_map.get(r["jira_key"], ""),
             "timestamp": r["replay_at"],
             "result": r["result"],
             "duration": r["duration_s"],

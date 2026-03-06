@@ -75,7 +75,7 @@ def register_tv_routes(app, data_dir, scripts_repo_path):
     # ---------- 6. 统计路由 ----------
     try:
         from .routes.stats_routes import create_stats_routes
-        bp = create_stats_routes(data_dir)
+        bp = create_stats_routes(data_dir, scripts_repo_path)
         app.register_blueprint(bp)
         print("  [OK] 统计路由已注册")
     except Exception as e:

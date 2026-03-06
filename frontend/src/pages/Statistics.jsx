@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, message } from 'antd'
-import { CheckCircleOutlined, CloseCircleOutlined, PlayCircleOutlined, ClockCircleOutlined, StopOutlined } from '@ant-design/icons'
-import { getStats } from '../api'
+import { Card, Row, Col, Statistic, Table, Tag, Select, Space, message } from 'antd'
+import { CheckCircleOutlined, CloseCircleOutlined, PlayCircleOutlined, ClockCircleOutlined, StopOutlined, FolderOutlined } from '@ant-design/icons'
+import { getStats, getModules } from '../api'
 
 export default function Statistics() {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [modules, setModules] = useState([])
+  const [moduleFilter, setModuleFilter] = useState(undefined)
 
   const fetchStats = async () => {
     setLoading(true)
@@ -19,14 +21,31 @@ export default function Statistics() {
     }
   }
 
-  useEffect(() => { fetchStats() }, [])
+  const fetchModules = async () => {
+    try {
+      const res = await getModules()
+      setModules(res.data?.data || [])
+    } catch (e) { /* ignore */ }
+  }
+
+  useEffect(() => { fetchStats(); fetchModules() }, [])
 
   const summary = stats?.summary || {}
   const caseStats = stats?.case_stats || []
   const recentResults = stats?.recent_results || []
 
+  const filterByModule = (list) => {
+    if (moduleFilter === undefined) return list
+    if (moduleFilter === '__none__') return list.filter(r => !r.module)
+    return list.filter(r => r.module === moduleFilter)
+  }
+
   const caseColumns = [
     { title: '用例 Key', dataIndex: 'case_key', key: 'case_key' },
+    {
+      title: '模块', dataIndex: 'module', key: 'module', width: 120,
+      render: (v) => v ? <Tag icon={<FolderOutlined />}>{v}</Tag> : <span style={{ color: '#ccc' }}>-</span>
+    },
     { title: '总次数', dataIndex: 'total', key: 'total', width: 80 },
     { title: '通过', dataIndex: 'passed', key: 'passed', width: 80 },
     { title: '失败', dataIndex: 'failed', key: 'failed', width: 80 },
@@ -39,6 +58,10 @@ export default function Statistics() {
   const recentColumns = [
     { title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 180 },
     { title: '用例', dataIndex: 'case_key', key: 'case_key' },
+    {
+      title: '模块', dataIndex: 'module', key: 'module', width: 120,
+      render: (v) => v ? <Tag icon={<FolderOutlined />}>{v}</Tag> : <span style={{ color: '#ccc' }}>-</span>
+    },
     { title: '执行人', dataIndex: 'executor', key: 'executor', width: 100 },
     {
       title: '结果', dataIndex: 'result', key: 'result', width: 80,
@@ -79,10 +102,24 @@ export default function Statistics() {
         </Col>
       </Row>
 
+      <Space style={{ marginBottom: 16 }}>
+        <span>模块筛选：</span>
+        <Select
+          placeholder="全部模块"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 160 }}
+          value={moduleFilter}
+          onChange={(v) => setModuleFilter(v)}
+          options={[...modules.map(m => ({ label: m, value: m })), { label: '未分组', value: '__none__' }]}
+        />
+      </Space>
+
       <Card title="各用例统计" style={{ marginBottom: 16 }}>
         <Table
           columns={caseColumns}
-          dataSource={caseStats}
+          dataSource={filterByModule(caseStats)}
           rowKey="case_key"
           loading={loading}
           size="small"
@@ -93,7 +130,7 @@ export default function Statistics() {
       <Card title="最近回放记录">
         <Table
           columns={recentColumns}
-          dataSource={recentResults}
+          dataSource={filterByModule(recentResults)}
           rowKey={(r) => r.timestamp || Math.random()}
           loading={loading}
           size="small"
