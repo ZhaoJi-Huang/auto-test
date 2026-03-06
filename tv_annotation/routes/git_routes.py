@@ -39,7 +39,7 @@ def _run_git(args, cwd, timeout=30):
             timeout=timeout,
             creationflags=_CREATION_FLAGS,
         )
-        stdout = result.stdout.decode("utf-8", errors="ignore").strip()
+        stdout = result.stdout.decode("utf-8", errors="ignore").rstrip()
         stderr = result.stderr.decode("utf-8", errors="ignore").strip()
         return result.returncode, stdout, stderr
     except subprocess.TimeoutExpired:
