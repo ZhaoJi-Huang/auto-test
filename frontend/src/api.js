@@ -2,6 +2,9 @@ import axios from 'axios'
 
 const api = axios.create({ timeout: 30000 })
 
+// 健康检查
+export const getHealth = () => api.get('/api/health', { timeout: 10000 })
+
 // 设备配置
 export const getConfig = () => api.get('/api/tv/config')
 export const updateConfig = (data) => api.post('/api/tv/config', data)

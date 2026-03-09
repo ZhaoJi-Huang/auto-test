@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Select, Button, Space, Table, Input, InputNumber, Tag, message, Alert, Divider, Radio, Modal, Popconfirm, Collapse } from 'antd'
 import { PlayCircleOutlined, PauseOutlined, DeleteOutlined, SendOutlined, PlusOutlined, EditOutlined, WarningOutlined, ThunderboltOutlined, LoadingOutlined, CheckCircleOutlined, ClockCircleOutlined, StopOutlined } from '@ant-design/icons'
-import { getCases, getCase, getModules, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep, quickReplay, stopQuickReplay, getReplayStatus } from '../api'
+import { getCases, getCase, getModules, startRecording, stopRecording, getRecordingStatus, insertAdb, insertAi, deleteLastStep, insertStepAt, deleteStep, getSavedSteps, insertSavedStep, deleteSavedStep, updateSavedStep, quickReplay, stopQuickReplay, getReplayStatus, getHealth } from '../api'
 
 const COMMON_KEYS = [
   'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'SETTING',
@@ -11,7 +11,7 @@ const COMMON_KEYS = [
   'PLAY_PAUSE', 'STOP', 'REWIND', 'FAST_FORWARD',
 ]
 
-export default function Recording() {
+export default function Recording({ onPreCheck, health }) {
   const [cases, setCases] = useState([])
   const [modules, setModules] = useState([])
   const [selectedModule, setSelectedModule] = useState(undefined)
@@ -131,8 +131,30 @@ export default function Recording() {
     return () => { if (replayTimerRef.current) clearInterval(replayTimerRef.current) }
   }, [quickReplaying])
 
+  // 操作前预检：检查设备连接
+  const preCheck = async () => {
+    try {
+      const res = await getHealth()
+      const adb = res.data?.checks?.adb_device?.status
+      if (adb === 'disconnected') {
+        message.error('设备未连接，请检查 ADB 连接后重试')
+        if (onPreCheck) onPreCheck()
+        return false
+      }
+      if (adb === 'not_configured') {
+        message.error('未配置设备 IP，请先在设备配置页设置')
+        return false
+      }
+    } catch (e) {
+      message.error('无法连接后端服务')
+      return false
+    }
+    return true
+  }
+
   const handleQuickReplay = async () => {
     if (!selectedCase) { message.warning('请先选择用例'); return }
+    if (!await preCheck()) return
     try {
       const res = await quickReplay(selectedCase)
       if (res.data?.success) {
@@ -160,6 +182,7 @@ export default function Recording() {
       message.warning('请先选择用例')
       return
     }
+    if (!await preCheck()) return
     try {
       await startRecording(selectedCase)
       message.success('录制已开始')

@@ -8,7 +8,7 @@ import {
   ClockCircleOutlined, EyeOutlined, WarningOutlined, ExclamationCircleOutlined,
   ReloadOutlined, FileTextOutlined, HistoryOutlined
 } from '@ant-design/icons'
-import { getCases, getCase, getModules, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult, getRunResult } from '../api'
+import { getCases, getCase, getModules, startReplay, stopReplay, getReplayStatus, getReplayResults, getReplayResult, getRunResult, getHealth } from '../api'
 
 // 步骤截图 URL：通过后端 API 获取
 const getScreenshotUrl = (screenshotPath) => {
@@ -46,7 +46,7 @@ function StatusTag({ status }) {
   return <Tag color={cfg.tagColor} icon={cfg.icon}>{cfg.text}</Tag>
 }
 
-export default function Replay() {
+export default function Replay({ onPreCheck, health }) {
   const [cases, setCases] = useState([])
   const [modules, setModules] = useState([])
   const [selectedModule, setSelectedModule] = useState(undefined)
@@ -143,8 +143,30 @@ export default function Replay() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [replaying, selectedCase])
 
+  // 操作前预检：检查设备连接
+  const preCheck = async () => {
+    try {
+      const res = await getHealth()
+      const adb = res.data?.checks?.adb_device?.status
+      if (adb === 'disconnected') {
+        message.error('设备未连接，请检查 ADB 连接后重试')
+        if (onPreCheck) onPreCheck()
+        return false
+      }
+      if (adb === 'not_configured') {
+        message.error('未配置设备 IP，请先在设备配置页设置')
+        return false
+      }
+    } catch (e) {
+      message.error('无法连接后端服务')
+      return false
+    }
+    return true
+  }
+
   const handleStart = async () => {
     if (!selectedCase) { message.warning('请先选择用例'); return }
+    if (!await preCheck()) return
     try {
       await startReplay({
         case_key: selectedCase,
