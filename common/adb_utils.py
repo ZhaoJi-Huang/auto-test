@@ -138,6 +138,40 @@ def send_keyevent(device_serial, keycode):
     return run_adb(["shell", "input", "keyevent", keycode], device_serial=device_serial)
 
 
+def list_adb_devices():
+    """列出所有已连接的 ADB 设备
+
+    Returns:
+        list[dict]: 设备列表，每项包含 serial, status, type (usb/network)
+    """
+    try:
+        result = run_adb(["devices"], timeout=10)
+    except RuntimeError:
+        return []
+
+    if result.returncode != 0:
+        return []
+
+    output = result.stdout.decode("utf-8", errors="ignore")
+    devices = []
+    for line in output.strip().split("\n")[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            serial = parts[0].strip()
+            status = parts[1].strip()
+            # 判断连接类型：包含冒号的是网络连接，否则是 USB
+            conn_type = "network" if ":" in serial else "usb"
+            devices.append({
+                "serial": serial,
+                "status": status,
+                "type": conn_type,
+            })
+    return devices
+
+
 def connect_device(device_serial):
     """连接 ADB 设备（适用于网络 ADB）"""
     try:

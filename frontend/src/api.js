@@ -10,6 +10,7 @@ export const getConfig = () => api.get('/api/tv/config')
 export const updateConfig = (data) => api.post('/api/tv/config', data)
 export const getCaptureDevices = () => api.get('/api/tv/capture-devices', { timeout: 120000 })
 export const checkDevice = () => api.get('/api/tv/device/check')
+export const getAdbDevices = () => api.get('/api/tv/adb_devices/list')
 export const getInputDevices = () => api.get('/api/tv/input-devices', { timeout: 15000 })
 
 // 用例管理

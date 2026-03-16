@@ -50,9 +50,9 @@ def create_config_routes(device_config, data_dir):
         if changes:
             audit_log("配置变更", "", ", ".join(changes))
 
-        # 如果有新 IP，尝试 ADB 连接
+        # 如果有新 IP（网络设备），尝试 ADB 连接；USB 设备无需 connect
         tv_ip = device_config.get("tv_ip")
-        if tv_ip:
+        if tv_ip and ":" in tv_ip:
             from common.adb_utils import connect_device
             ok, msg = connect_device(tv_ip)
             if not ok:
@@ -72,10 +72,25 @@ def create_config_routes(device_config, data_dir):
 
     @bp.route("/api/tv/device/check", methods=["GET"])
     def check_device():
-        """检查 ADB 设备连接状态"""
+        """检查 ADB 设备连接状态（支持 IP 和 USB 连接）"""
         tv_ip = device_config.get("tv_ip")
         if not tv_ip:
-            return jsonify({"success": False, "error": "未配置设备 IP"})
+            # 未配置 IP 时，尝试自动检测已连接的设备
+            from common.adb_utils import list_adb_devices
+            devices = list_adb_devices()
+            available = [d for d in devices if d["status"] == "device"]
+            if not available:
+                return jsonify({"success": False, "error": "未检测到已连接的 ADB 设备，请通过 USB 连接设备或配置设备 IP"})
+            # 自动使用第一个可用设备
+            serial = available[0]["serial"]
+            device_config["tv_ip"] = serial
+            from common.config_manager import save_device_config
+            save_device_config(data_dir, device_config)
+            from common.adb_utils import check_adb_device
+            ok, msg = check_adb_device(serial)
+            conn_type = available[0]["type"]
+            type_label = "USB" if conn_type == "usb" else "网络"
+            return jsonify({"success": ok, "message": f"已自动检测到{type_label}设备 {serial}" + (f"，{msg}" if msg else "，连接正常")})
         from common.adb_utils import check_adb_device
         ok, msg = check_adb_device(tv_ip)
         return jsonify({"success": ok, "message": msg if msg else "设备连接正常"})
@@ -85,7 +100,7 @@ def create_config_routes(device_config, data_dir):
         """获取 TV 上的输入设备列表（用于选择 getevent 监听设备）"""
         tv_ip = device_config.get("tv_ip")
         if not tv_ip:
-            return jsonify({"success": False, "error": "未配置设备 IP", "data": []})
+            return jsonify({"success": False, "error": "未配置设备地址，请先连接设备", "data": []})
         try:
             import re
             from common.adb_utils import run_adb
@@ -138,5 +153,15 @@ def create_config_routes(device_config, data_dir):
             return jsonify({"success": True, "output": output})
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @bp.route("/api/tv/adb_devices/list", methods=["GET"])
+    def adb_devices_list():
+        """获取已连接 ADB 设备的结构化列表"""
+        try:
+            from common.adb_utils import list_adb_devices
+            devices = list_adb_devices()
+            return jsonify({"success": True, "data": devices})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e), "data": []})
 
     return bp

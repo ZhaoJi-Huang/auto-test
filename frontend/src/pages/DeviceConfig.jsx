@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Select, Button, Space, Alert, Descriptions, message, Divider, Spin } from 'antd'
-import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { getConfig, updateConfig, getCaptureDevices, getInputDevices, checkDevice, getJiraConfig, saveJiraConfig } from '../api'
+import { ReloadOutlined, CheckCircleOutlined, SearchOutlined } from '@ant-design/icons'
+import { getConfig, updateConfig, getCaptureDevices, getInputDevices, checkDevice, getAdbDevices, getJiraConfig, saveJiraConfig } from '../api'
 
 export default function DeviceConfig() {
   const [config, setConfig] = useState(null)
@@ -10,6 +10,8 @@ export default function DeviceConfig() {
   const [deviceCheckResult, setDeviceCheckResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [checkLoading, setCheckLoading] = useState(false)
+  const [adbDevices, setAdbDevices] = useState([])
+  const [detectLoading, setDetectLoading] = useState(false)
   const [jiraForm] = Form.useForm()
   const [configForm] = Form.useForm()
 
@@ -97,6 +99,34 @@ export default function DeviceConfig() {
     }
   }
 
+  const handleDetectDevices = async () => {
+    setDetectLoading(true)
+    try {
+      const res = await getAdbDevices()
+      const devices = res.data?.data || []
+      setAdbDevices(devices)
+      if (devices.length === 0) {
+        message.warning('未检测到已连接的 ADB 设备')
+      } else {
+        message.success(`检测到 ${devices.length} 个设备`)
+      }
+    } catch (e) {
+      message.error('检测设备失败: ' + (e.response?.data?.error || e.message))
+    } finally {
+      setDetectLoading(false)
+    }
+  }
+
+  const handleSelectDevice = async (serial) => {
+    try {
+      await updateConfig({ tv_ip: serial })
+      message.success('已选择设备 ' + serial)
+      fetchConfig()
+    } catch (e) {
+      message.error('选择设备失败: ' + (e.response?.data?.error || e.message))
+    }
+  }
+
   const handleSaveJira = async (values) => {
     try {
       await saveJiraConfig(values)
@@ -132,9 +162,32 @@ export default function DeviceConfig() {
       </Card>
 
       <Card title="TV 设备配置" style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{ marginRight: 12, fontWeight: 'bold' }}>自动检测设备：</span>
+          <Button icon={<SearchOutlined />} onClick={handleDetectDevices} loading={detectLoading}>
+            检测已连接设备
+          </Button>
+          {adbDevices.length > 0 && (
+            <Select
+              style={{ width: 360, marginLeft: 12 }}
+              placeholder="选择已连接的设备"
+              value={config?.tv_ip || undefined}
+              onChange={handleSelectDevice}
+              options={adbDevices.map(d => ({
+                label: `${d.serial} (${d.type === 'usb' ? 'USB' : '网络'} - ${d.status === 'device' ? '已连接' : d.status})`,
+                value: d.serial,
+                disabled: d.status !== 'device',
+              }))}
+            />
+          )}
+          <div style={{ color: '#888', fontSize: 12, marginTop: 4 }}>
+            通过 USB 或网线连接设备后点击检测，可自动识别设备，无需手动输入 IP
+          </div>
+        </div>
+
         <Form form={configForm} layout="inline" onFinish={handleUpdateConfig}>
-          <Form.Item label="TV IP 地址" name="tv_ip">
-            <Input placeholder="192.168.x.x:5555" style={{ width: 200 }} />
+          <Form.Item label="设备地址" name="tv_ip">
+            <Input placeholder="IP 地址（如 192.168.x.x:5555）或设备序列号" style={{ width: 320 }} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={loading}>保存配置</Button>
