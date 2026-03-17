@@ -168,6 +168,56 @@ def _save_case(scripts_repo_path, key, case_data, module=None):
         raise
 
 
+def rebuild_index(scripts_repo_path):
+    """扫描磁盘上的 case 目录，将未在 index.json 中的用例补充进去
+
+    Returns:
+        int: 新增的用例数量
+    """
+    index = load_index(scripts_repo_path)
+    existing_keys = {item.get("key") for item in index}
+    added = 0
+
+    # 需要排除的目录
+    skip_dirs = {"plans", ".git", "__pycache__", "node_modules"}
+
+    def _scan_dir(base_dir, module=""):
+        """扫描目录下的 case.json 文件"""
+        nonlocal added
+        if not os.path.isdir(base_dir):
+            return
+        for name in os.listdir(base_dir):
+            if name in skip_dirs or name.startswith("."):
+                continue
+            entry_dir = os.path.join(base_dir, name)
+            if not os.path.isdir(entry_dir):
+                continue
+            case_json = os.path.join(entry_dir, "case.json")
+            if os.path.isfile(case_json):
+                # 这是一个用例目录
+                if name not in existing_keys:
+                    try:
+                        with open(case_json, "r", encoding="utf-8") as f:
+                            case_data = json.load(f)
+                        entry = _build_index_entry(scripts_repo_path, case_data, module or None)
+                        index.append(entry)
+                        existing_keys.add(name)
+                        added += 1
+                    except Exception as e:
+                        logger.warning("扫描用例 %s 失败: %s", name, e)
+            else:
+                # 可能是模块目录，递归扫描
+                _scan_dir(entry_dir, module=name)
+
+    _scan_dir(scripts_repo_path)
+
+    if added > 0:
+        save_index(scripts_repo_path, index)
+        logger.info("索引重建：新增 %d 个用例", added)
+
+    return added
+
+
 def _load_case(scripts_repo_path, key, index=None):
     """读取用例的 case.json"""
     case_dir = get_case_dir(scripts_repo_path, key, index)

@@ -393,7 +393,7 @@ replay_routes      ·       ✓          ·           ✓          ✓          
 case_routes        ·       ·          ✓           ✓          ·            ·         ·          ·           ·           ✓            ·          ·             ✓
 plan_routes        ·       ✓          ·           ✓          ·            ·         ·          ·           ·           ·            ·          ✓             ✓
 stats_routes       ·       ·          ·           ·          ·            ·         ·          ·           ·           ·            ·          ✓             ·
-git_routes         ·       ·          ·           ·          ·            ·         ·          ·           ·           ·            ·          ·             ·
+git_routes         ·       ·          ·           ·          ·            ·         ·          ·           ·           ·            ·          ✓(动态)       ·
 stream_routes      ·       ·          ·           ·          ✓            ·         ·          ·           ·           ·            ·          ·             ·
 recorder           ✓       ✓          ·           ·          ·            ✓         ·          ·           ·           ·            ·          ✓(动态)       ·
 replay_engine      ✓       ✓          ·           ·          ✓            ✓         ·          ·           ✓(动态)     ·            ✓(动态)    ✓(动态)       ·
@@ -410,6 +410,7 @@ video_recorder     ·       ·          ·           ·          ✓(间接)    
 | `load_index()` | case_routes | stats_routes, plan_routes |
 | `save_index()` | case_routes | （内部使用） |
 | `update_index_entry()` | case_routes | （内部使用） |
+| `rebuild_index()` | case_routes | git_routes(pull 后), main_app(启动更新后) |
 | `get_shared_replay_engine()` | replay_routes | recording_routes, plan_routes |
 
 > **重要**: `get_case_dir()` 和 `get_shared_replay_engine()` 是跨模块共享最广的函数，修改其签名或行为需检查所有调用方。
@@ -526,7 +527,7 @@ video_recorder     ·       ·          ·           ·          ✓(间接)    
 | 方法 | URL | 路由函数 | 核心依赖 |
 |------|-----|---------|---------|
 | POST | `/api/tv/git/commit` | `git_commit` | _run_git |
-| POST | `/api/tv/git/pull` | `git_pull` | _run_git |
+| POST | `/api/tv/git/pull` | `git_pull` | _run_git, case_routes.rebuild_index |
 | GET | `/api/tv/git/status` | `git_status` | _run_git |
 | GET | `/api/tv/git/log` | `git_log` | _run_git |
 | GET | `/api/tv/git/file-content` | `git_file_content` | 文件读取 |

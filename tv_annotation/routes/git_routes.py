@@ -173,10 +173,24 @@ def create_git_routes(scripts_repo_path):
                 return jsonify({"success": False, "error": f"拉取失败: {error_msg}"})
 
             updated = "Already up to date" not in stdout
+
+            # 拉取成功后，扫描磁盘补充新用例到 index.json
+            new_cases = 0
+            if updated:
+                try:
+                    from tv_annotation.routes.case_routes import rebuild_index
+                    new_cases = rebuild_index(abs_scripts)
+                except Exception as e:
+                    logger.warning("拉取后重建索引失败: %s", e)
+
+            msg = "已更新" if updated else "已是最新"
+            if new_cases > 0:
+                msg += f"，新增 {new_cases} 个用例"
+
             return jsonify({
                 "success": True,
-                "message": "已更新" if updated else "已是最新",
-                "data": {"updated": updated, "output": stdout},
+                "message": msg,
+                "data": {"updated": updated, "new_cases": new_cases, "output": stdout},
             })
 
         except RuntimeError as e:

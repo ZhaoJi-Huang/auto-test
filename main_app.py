@@ -60,6 +60,15 @@ def _auto_update():
                 capture_output=True, text=True, timeout=10,
             )
             print(f"[AutoUpdate] 脚本仓库更新: {result.stdout.strip()}")
+            # 拉取后重建索引，将新用例补充到 index.json
+            if "Already up to date" not in (result.stdout or ""):
+                try:
+                    from tv_annotation.routes.case_routes import rebuild_index
+                    added = rebuild_index(scripts_path)
+                    if added:
+                        print(f"[AutoUpdate] 索引重建：新增 {added} 个用例")
+                except Exception as e2:
+                    print(f"[AutoUpdate] 索引重建失败（不影响启动）: {e2}")
         else:
             print(f"[AutoUpdate] 脚本仓库不存在或非 Git 仓库: {scripts_path}")
     except Exception as e:
