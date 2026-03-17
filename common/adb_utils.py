@@ -172,6 +172,44 @@ def list_adb_devices():
     return devices
 
 
+def ensure_device_serial(device_config, data_dir=None):
+    """确保获取到有效的设备序列号，未配置时自动检测已连接设备
+
+    Args:
+        device_config: 设备配置字典（含 tv_ip 字段）
+        data_dir: 数据目录（非 None 时自动保存检测到的设备到配置）
+
+    Returns:
+        (str, str): (device_serial, message)
+            - device_serial 为空字符串表示未找到设备
+            - message 包含自动检测信息或错误提示
+    """
+    serial = device_config.get("tv_ip", "")
+    if serial:
+        return serial, ""
+
+    # 未配置，尝试自动检测
+    devices = list_adb_devices()
+    available = [d for d in devices if d["status"] == "device"]
+    if not available:
+        return "", "未检测到已连接的 ADB 设备，请通过 USB 连接设备或配置设备地址"
+
+    serial = available[0]["serial"]
+    conn_type = available[0]["type"]
+    type_label = "USB" if conn_type == "usb" else "网络"
+
+    # 自动保存到配置
+    device_config["tv_ip"] = serial
+    if data_dir:
+        try:
+            from common.config_manager import save_device_config
+            save_device_config(data_dir, device_config)
+        except Exception:
+            pass
+
+    return serial, f"已自动检测到{type_label}设备 {serial}"
+
+
 def connect_device(device_serial):
     """连接 ADB 设备（适用于网络 ADB）"""
     try:

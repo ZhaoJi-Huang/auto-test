@@ -397,10 +397,12 @@ def _execute_plan(plan, repeat, data_dir, scripts_repo_path):
 
     # 延迟导入 ADB 工具
     try:
-        from common.adb_utils import check_adb_device, send_keyevent
+        from common.adb_utils import check_adb_device, send_keyevent, ensure_device_serial
         from common.config_manager import load_device_config
         device_config = load_device_config(data_dir)
-        device_serial = device_config.get("tv_ip", "")
+        device_serial, auto_msg = ensure_device_serial(device_config, data_dir)
+        if auto_msg:
+            logger.info("测试计划: %s", auto_msg)
     except ImportError:
         device_serial = ""
 

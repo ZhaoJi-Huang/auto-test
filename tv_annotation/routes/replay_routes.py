@@ -17,12 +17,13 @@ def get_shared_replay_engine():
     """获取共享回放引擎实例（供其他模块调用）"""
     cfg = _shared_engine
     if cfg["instance"] is None and cfg["device_config"] is not None:
-        tv_ip = cfg["device_config"].get("tv_ip", "")
-        if tv_ip:
+        from common.adb_utils import ensure_device_serial
+        serial, _ = ensure_device_serial(cfg["device_config"], cfg["data_dir"])
+        if serial:
             from tv_annotation.capture_card import capture_card
             from tv_annotation.replay_engine import ReplayEngine
             cfg["instance"] = ReplayEngine(
-                device_serial=tv_ip,
+                device_serial=serial,
                 data_dir=cfg["data_dir"],
                 scripts_repo_path=cfg["scripts_repo_path"],
                 capture_card=capture_card,
@@ -68,10 +69,12 @@ def create_replay_routes(device_config, data_dir, scripts_repo_path):
 
         engine = _get_engine()
         if engine is None:
-            return jsonify({"success": False, "error": "未配置设备 IP，请先在配置页设置"})
+            return jsonify({"success": False, "error": "未配置设备地址，请先连接设备或在配置页设置"})
 
         # 更新设备序列号（配置可能已变更）
-        engine._device_serial = device_config.get("tv_ip", "")
+        from common.adb_utils import ensure_device_serial
+        serial, _ = ensure_device_serial(device_config)
+        engine._device_serial = serial or device_config.get("tv_ip", "")
 
         ok, msg = engine.replay(
             case_key=case_key,

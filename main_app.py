@@ -249,14 +249,15 @@ def health_check():
     # 1. ADB 设备连接
     try:
         from common.config_manager import load_device_config
-        from common.adb_utils import check_adb_device
+        from common.adb_utils import check_adb_device, ensure_device_serial
         device_config = load_device_config(DATA_DIR)
-        tv_ip = device_config.get("tv_ip", "")
-        if tv_ip:
-            ok, msg = check_adb_device(tv_ip)
-            checks["adb_device"] = {"status": "connected" if ok else "disconnected", "detail": msg}
+        serial, auto_msg = ensure_device_serial(device_config, DATA_DIR)
+        if serial:
+            ok, msg = check_adb_device(serial)
+            detail = auto_msg + ("，连接正常" if ok else f"，{msg}") if auto_msg else msg
+            checks["adb_device"] = {"status": "connected" if ok else "disconnected", "detail": detail}
         else:
-            checks["adb_device"] = {"status": "not_configured"}
+            checks["adb_device"] = {"status": "not_configured", "detail": auto_msg or "未配置设备地址"}
     except Exception as e:
         checks["adb_device"] = {"status": "error", "detail": str(e)}
 

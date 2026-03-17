@@ -57,9 +57,10 @@ def create_recording_routes(device_config, scripts_repo_path):
         if not case_key:
             return jsonify({"success": False, "error": "case_key 不能为空"}), 400
 
-        device_serial = device_config.get("tv_ip", "")
+        from common.adb_utils import ensure_device_serial
+        device_serial, auto_msg = ensure_device_serial(device_config)
         if not device_serial:
-            return jsonify({"success": False, "error": "未配置设备 IP，请先在设置中配置"}), 400
+            return jsonify({"success": False, "error": "未配置设备地址，请先连接设备或在设置中配置"}), 400
 
         recorder = _get_recorder()
         ok, msg = recorder.start(case_key)
@@ -476,9 +477,10 @@ def create_recording_routes(device_config, scripts_repo_path):
         if not case_key:
             return jsonify({"success": False, "error": "case_key 不能为空"}), 400
 
-        device_serial = device_config.get("tv_ip", "")
+        from common.adb_utils import ensure_device_serial
+        device_serial, auto_msg = ensure_device_serial(device_config)
         if not device_serial:
-            return jsonify({"success": False, "error": "未配置设备 IP，请先在设置中配置"}), 400
+            return jsonify({"success": False, "error": "未配置设备地址，请先连接设备或在设置中配置"}), 400
 
         from tv_annotation.routes.replay_routes import get_shared_replay_engine
         engine = get_shared_replay_engine()
